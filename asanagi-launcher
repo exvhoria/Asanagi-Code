@@ -1,0 +1,449 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# ============================================================================
+#  Asanagi Code v2.0 launcher — official OpenCode v2 (musl) on Termux
+#  Modes: [1] Unlimited Gateway (free)  [2] +OpenRouter  [0] direct/no gateway
+#  Also: doctor | repair | update | kill | uninstall | -1 | -2 | -0
+#  Rollback to the v1 stack: opencode-v1
+# ============================================================================
+set -e
+
+# Sanitize the dynamic-loader env FIRST — before any binary invocation.
+# Termux shells export LD_PRELOAD=libtermux-exec-ld-preload.so (a bionic
+# hook) and legacy glibc-era installs may leave LD_LIBRARY_PATH behind; the
+# musl loader chokes on both. The binary carries its own rpath ($PREFIX/lib)
+# so it needs neither, and a clean env keeps bionic programs (python3, jq)
+# spawned from agent shells working too.
+unset LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT
+
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+LIBEXEC="$PREFIX/libexec/asanagi"
+BIN="$LIBEXEC/asanagi-v2-musl.bin"
+NETPROXY_PORT="${ASANAGI_NET_PROXY_PORT:-8089}"
+GATEWAY_URL="http://127.0.0.1:8123"
+BRIDGE_URL="http://127.0.0.1:8085"
+PROXY_CLI="$HOME/.local/bin/opencode-proxy"
+BRIDGE_CLI="$HOME/.local/bin/openrouter-bridge"
+OPENROUTER_CONFIG="$HOME/.config/openrouter-bridge/config.json"
+CONFIG_FILE="$HOME/.config/opencode/opencode.json"
+[ -f "$CONFIG_FILE" ] || CONFIG_FILE="$HOME/.config/opencode/opencode.jsonc"
+REPO_CANDIDATES=(
+    "/storage/emulated/0/Asanagi Code"
+    "$HOME/storage/shared/Asanagi Code"
+    "$HOME/asanagi-code"
+)
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+
+find_repo_dir() {
+    for d in "${REPO_CANDIDATES[@]}"; do
+        [ -f "$d/install.sh" ] && { echo "$d"; return 0; }
+    done
+    return 1
+}
+
+run_doctor() {
+    echo -e "${CYAN}${BOLD}=== Asanagi Code System Diagnostics (Doctor) ===${NC}\n"
+    local issues=0
+    echo -n "[*] Architecture... "
+    ARCH=$(uname -m)
+    case "$ARCH" in aarch64|arm64) echo -e "${GREEN}OK ($ARCH)${NC}";; *) echo -e "${RED}FAIL ($ARCH)${NC}"; issues=$((issues+1));; esac
+
+    echo -n "[*] musl loader ($PREFIX/lib/ld-musl-aarch64.so.1)... "
+    [ -x "$PREFIX/lib/ld-musl-aarch64.so.1" ] && echo -e "${GREEN}OK${NC}" || { echo -e "${RED}MISSING${NC}"; issues=$((issues+1)); }
+
+    echo -n "[*] Asanagi binary... "
+    if [ -f "$BIN" ]; then
+        VER=$("$BIN" --version 2>/dev/null | tr -d '\r\n' | sed 's/^opencode /Asanagi Code /')
+        echo -e "${GREEN}${VER:-PRESENT}${NC}"
+    else
+        echo -e "${RED}MISSING ($BIN)${NC}"; issues=$((issues+1))
+    fi
+
+    echo -n "[*] DNS egress proxy (127.0.0.1:$NETPROXY_PORT)... "
+    if python3 -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('127.0.0.1', $NETPROXY_PORT)); s.close()" 2>/dev/null; then
+        echo -e "${GREEN}RUNNING${NC}"
+    else
+        echo -e "${YELLOW}STOPPED (auto-starts on launch)${NC}"
+    fi
+
+    echo -n "[*] Unlimited Gateway ($GATEWAY_URL)... "
+    if curl -s --max-time 1.5 "$GATEWAY_URL/healthz" >/dev/null 2>&1; then
+        W=$(curl -s "$GATEWAY_URL/healthz" | jq -r '.warp.status // "unknown"' 2>/dev/null)
+        M=$(curl -s "$GATEWAY_URL/healthz" | jq -r '.models.exposed // 0' 2>/dev/null)
+        echo -e "${GREEN}RUNNING (WARP: $W, Models: $M)${NC}"
+    else
+        echo -e "${YELLOW}STOPPED (auto-starts in Mode 1/2)${NC}"
+    fi
+
+    echo -n "[*] OpenRouter Bridge (127.0.0.1:8085)... "
+    if curl -s --max-time 1 "$BRIDGE_URL/healthz" >/dev/null 2>&1; then
+        echo -e "${GREEN}RUNNING${NC}"
+    else
+        echo -e "${YELLOW}STANDBY (Mode 2 only)${NC}"
+    fi
+
+    echo -n "[*] DNS resolution (1.1.1.1)... "
+    if python3 -c "import socket; socket.create_connection(('1.1.1.1', 53), timeout=1.0)" 2>/dev/null; then
+        echo -e "${GREEN}OK${NC}"
+    else
+        echo -e "${RED}UNREACHABLE (check $PREFIX/etc/resolv.conf)${NC}"; issues=$((issues+1))
+    fi
+
+    echo -n "[*] Config ($(basename "$CONFIG_FILE" 2>/dev/null))... "
+    if [ -f "$CONFIG_FILE" ]; then
+        if jq empty "$CONFIG_FILE" 2>/dev/null; then
+            echo -e "${GREEN}VALID ($(jq -r '.provider.asanagi.options.baseURL // "no asanagi provider"' "$CONFIG_FILE" 2>/dev/null))${NC}"
+        else
+            echo -e "${RED}SYNTAX ERROR${NC}"; issues=$((issues+1))
+        fi
+    else
+        echo -e "${RED}NOT FOUND${NC}"; issues=$((issues+1))
+    fi
+
+    [ -f "$HOME/.local/bin/opencode-v1" ] && echo -e "[i] v1 rollback available: ${BOLD}opencode-v1${NC}" || true
+    echo ""
+    if [ $issues -eq 0 ]; then echo -e "${GREEN}${BOLD}[✓] All core systems operational.${NC}"
+    else echo -e "${RED}${BOLD}[!] Found $issues issue(s).${NC}"; fi
+    exit $issues
+}
+
+repair_asanagi() {
+    echo -e "${CYAN}[*] Re-running the Asanagi installer (binary + wrapper + config refresh)...${NC}"
+    local repo; repo=$(find_repo_dir) || repo=""
+    if [ -n "$repo" ]; then
+        sh "$repo/install.sh"
+    else
+        echo -e "${RED}[-] Installer not found. Place the Asanagi Code folder at one of:${NC}"
+        printf '    %s\n' "${REPO_CANDIDATES[@]}"
+        exit 1
+    fi
+}
+
+update_asanagi() {
+    local repo; repo=$(find_repo_dir) || repo=""
+    if [ -n "$repo" ] && [ -f "$repo/scripts/check-update.sh" ]; then
+        sh "$repo/scripts/check-update.sh" --yes
+    else
+        repair_asanagi
+    fi
+}
+
+ensure_netproxy() {
+    if ! python3 -c "import socket; s=socket.socket(); s.settimeout(1); s.connect(('127.0.0.1', $NETPROXY_PORT)); s.close()" 2>/dev/null; then
+        echo -e "${YELLOW}[*] Starting DNS egress proxy (127.0.0.1:$NETPROXY_PORT)...${NC}"
+        PROXY_DEBUG=1 ASANAGI_NET_PROXY_PORT="$NETPROXY_PORT" PROXY_PORT="$NETPROXY_PORT" nohup python3 "$LIBEXEC/asanagi-proxy.py" >"$PREFIX/tmp/asanagi-proxy.log" 2>&1 &
+        sleep 0.5
+    fi
+    if [ -x "$LIBEXEC/proxy-watchdog.sh" ]; then
+        nohup "$LIBEXEC/proxy-watchdog.sh" >/dev/null 2>&1 &
+    fi
+}
+
+ensure_gateway() {
+    # pastikan watchdog hidup (auto-heal healthz mati & 429 storm)
+    if ! pgrep -f "watchdog.s[h]" >/dev/null 2>&1; then
+        ( cd "$HOME/.opencode-proxy" 2>/dev/null && nohup ./watchdog.sh >/dev/null 2>&1 & ) 2>/dev/null
+    fi
+    if ! curl -s --max-time 1 "$GATEWAY_URL/healthz" >/dev/null 2>&1; then
+        if [ ! -x "$PROXY_CLI" ]; then
+            echo -e "${RED}[-] Gateway manager missing. Re-install: asanagi repair${NC}"; exit 1
+        fi
+        echo -e "${YELLOW}[*] Starting Unlimited Gateway (port 8080, WARP pool)...${NC}"
+        "$PROXY_CLI" start >/dev/null 2>&1 || "$PROXY_CLI" start || true
+        local waited=0
+        while [ $waited -lt 45 ]; do
+            if curl -s --max-time 1 "$GATEWAY_URL/healthz" >/dev/null 2>&1; then
+                echo -e "\r${GREEN}[+] Unlimited Gateway ready.                        ${NC}"; return 0
+            fi
+            sleep 1; waited=$((waited+1))
+            echo -ne "\r${CYAN}[*] Waiting for gateway + WARP egress (${waited}/45s)...${NC}"
+        done
+        echo ""
+        echo -e "${RED}[-] Gateway not ready after 45s. Try: opencode-proxy restart${NC}"
+        "$PROXY_CLI" logs 2>/dev/null | tail -n 8 || true
+        exit 1
+    fi
+}
+
+ensure_bridge() {
+    local api_key=""
+    [ -f "$OPENROUTER_CONFIG" ] && api_key=$(jq -r '.default_api_key // empty' "$OPENROUTER_CONFIG" 2>/dev/null) || true
+    [ -z "$api_key" ] && [ -n "$OPENROUTER_API_KEY" ] && api_key="$OPENROUTER_API_KEY" || true
+    if [ -z "$api_key" ]; then
+        echo -e "\n${YELLOW}${BOLD}[!] OpenRouter API key required for Mode 2.${NC}"
+        printf 'Enter your OpenRouter key (sk-or-v1-...): '
+        read -r input_key
+        input_key=$(echo "$input_key" | tr -d '[:space:]')
+        if ! printf '%s' "$input_key" | grep -qE '^sk-or-v1-[a-zA-Z0-9]{20,}$'; then
+            echo -e "${RED}[-] Invalid key format. Aborting.${NC}"; exit 1
+        fi
+        api_key="$input_key"
+        mkdir -p "$(dirname "$OPENROUTER_CONFIG")"
+        if [ -f "$OPENROUTER_CONFIG" ]; then
+            jq --arg k "$api_key" '.default_api_key = $k' "$OPENROUTER_CONFIG" > "$OPENROUTER_CONFIG.tmp" && mv "$OPENROUTER_CONFIG.tmp" "$OPENROUTER_CONFIG"
+        else
+            printf '{"default_api_key": "%s"}\n' "$api_key" > "$OPENROUTER_CONFIG"
+        fi
+        chmod 600 "$OPENROUTER_CONFIG"
+        echo -e "${GREEN}[+] Key saved.${NC}"
+    fi
+    if ! curl -s --max-time 1 "$BRIDGE_URL/healthz" >/dev/null 2>&1; then
+        [ -x "$BRIDGE_CLI" ] && "$BRIDGE_CLI" start >/dev/null 2>&1 || true
+        sleep 1
+        curl -s --max-time 1 "$BRIDGE_URL/healthz" >/dev/null 2>&1 \
+            && echo -e "${GREEN}[+] OpenRouter Bridge ready.${NC}" \
+            || echo -e "${YELLOW}[!] Bridge not responding — check: openrouter-bridge logs${NC}"
+    fi
+}
+
+# ---- command routing -------------------------------------------------------
+case "$1" in
+    doctor|--doctor)        run_doctor ;;
+    repair|--repair)        repair_asanagi; exit 0 ;;
+    update|upgrade|--update|--upgrade) update_asanagi; exit 0 ;;
+    uninstall|--uninstall)  echo "Run the uninstaller: sh \"$(find_repo_dir || echo '/storage/emulated/0/Asanagi Code')/uninstall.sh\""; exit 0 ;;
+    kill|--kill|kill-proxy) "$PROXY_CLI" kill 2>/dev/null || true; exit 0 ;;
+esac
+
+# ---- mode selection --------------------------------------------------------
+MODE=""
+PASSTHROUGH=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -1) MODE="1"; shift ;;
+        -2) MODE="2"; shift ;;
+        -0|--direct) MODE="0"; shift ;;
+        --mode) MODE="$2"; shift 2 ;;
+        *) PASSTHROUGH+=("$1"); shift ;;
+    esac
+done
+[ -z "$MODE" ] && [ -n "$ASANAGI_MODE" ] && MODE="$ASANAGI_MODE" || true
+[ -z "$MODE" ] && [ ${#PASSTHROUGH[@]} -gt 0 ] && MODE="1" || true
+
+# ---- bare-word routing + branded static output ------------------------------
+# Two v2 CLI quirks are fixed here, before any gateway/service startup:
+#  1) The CLI treats the first bare word as a project directory
+#     ("asanagi help" -> ENOENT chdir 'help'). Map bare words to flags.
+#  2) --version/--help print the internal binary name ("opencode ...").
+#     The internal name must stay "opencode" (it is interned with the
+#     data-directory name), so the launcher brands the static output instead.
+brand_filter() {
+    sed -e 's/^opencode /Asanagi Code /' \
+        -e 's/^  opencode /  Asanagi Code /' \
+        -e 's/opencode upgrade/Asanagi Code upgrade/g' \
+        -e 's/opencode serve/Asanagi Code serve/g' \
+        -e 's/opencode run/Asanagi Code run/g' \
+        -e 's/opencode attach/Asanagi Code attach/g' \
+        -e 's/opencode --version/Asanagi Code --version/g' \
+        -e 's/- opencode version/- Asanagi Code version/g'
+}
+if [ ${#PASSTHROUGH[@]} -gt 0 ]; then
+    case "${PASSTHROUGH[0]}" in
+        help)    PASSTHROUGH=("--help" "${PASSTHROUGH[@]:1}") ;;
+        version) PASSTHROUGH=("--version" "${PASSTHROUGH[@]:1}") ;;
+    esac
+fi
+if [ ${#PASSTHROUGH[@]} -eq 1 ]; then
+    case "${PASSTHROUGH[0]}" in
+        --version|-v)
+            "$BIN" --version 2>/dev/null | sed 's/^opencode /Asanagi Code /'
+            exit 0 ;;
+    esac
+fi
+for __a in ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}; do
+    if [ "$__a" = "--help" ] || [ "$__a" = "-h" ]; then
+        "$BIN" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} 2>&1 | brand_filter
+        exit ${PIPESTATUS[0]}
+    fi
+done
+unset __a
+
+# ---- layar perpisahan: logo + judul (dipakai saat exit TUI dan tombol q) -----
+show_farewell() {
+    clear 2>/dev/null || true
+    __LOGO_DIR="/data/data/com.termux/files/home/.local/share/asanagi"
+    __SZ=$(stty size 2>/dev/null)
+    if [ -n "$__SZ" ]; then __LINES=${__SZ% *}; __TW=${__SZ#* }; else __LINES=24; __TW=80; fi
+
+    # deteksi sixel: kirim DA1, baca respons ≤1 detik; capability '4' = sixel
+    # (stty -echo agar respons terminal tidak ter-echo ke layar)
+    __SIXEL=no
+    __OLDSTTY=$(stty -g 2>/dev/null)
+    stty -echo 2>/dev/null
+    printf '\033[c' > /dev/tty 2>/dev/null
+    __DA=""
+    IFS=';' read -t 1 -r -d c __DA < /dev/tty 2>/dev/null || true
+    [ -n "$__OLDSTTY" ] && stty "$__OLDSTTY" 2>/dev/null
+    case ";$__DA;" in
+        *";4;"*|*";4c"*) __SIXEL=yes ;;
+    esac
+    if [ "$__SIXEL" = yes ] && [ -f "$__LOGO_DIR/launcher-logo.six" ]; then
+        cat "$__LOGO_DIR/launcher-logo.six"
+        echo ""
+    else
+        __w=""
+        for __cand in 96 88 80 72 64 56 48 40 32 24 16; do
+            if [ $(( __cand / 2 )) -le $(( __LINES - 6 )) ] && [ "$__cand" -le "$__TW" ] \
+               && [ -f "$__LOGO_DIR/logo-ladder/logo-${__cand}.ansi" ]; then
+                __w=$__cand; break
+            fi
+        done
+        if [ -n "$__w" ]; then
+            __LP=$(( (__TW - __w) / 2 )); [ "$__LP" -lt 0 ] && __LP=0
+            sed "s/^/$(printf '%*s' "$__LP" '')/" "$__LOGO_DIR/logo-ladder/logo-${__w}.ansi"
+            echo ""
+        fi
+    fi
+    __m="✦  A S A N A G I   C O D E  ✦"
+    __mp=$(( (__TW - ${#__m}) / 2 )); [ "$__mp" -lt 0 ] && __mp=0
+    printf "%*s%s\n" "$__mp" "" "$__m"
+    unset __LOGO_DIR __SZ __LINES __TW __w __cand __LP __m __mp __SIXEL __DA __OLDSTTY
+}
+
+
+if [ -z "$MODE" ]; then
+    clear 2>/dev/null || true
+    __V=$("$BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    __sub="v${__V:-2.2.7} · BETA"
+    __len=$(( 8 + $(printf '%s' "${__V:-2.2.7}" | wc -c) ))   # 8 = "v" + " · BETA"
+    __pl=$(( (54 - __len) / 2 ))
+    __pr=$(( 54 - __len - __pl ))
+    echo -e ""
+    echo -e "  ${CYAN}╭──────────────────────────────────────────────────────╮${NC}"
+    echo -e "  ${CYAN}│${NC}$(printf '%*s' 12 '')${BOLD}${CYAN}✦  A S A N A G I   C O D E  ✦${NC}$(printf '%*s' 13 '')${CYAN}│${NC}"
+    echo -e "  ${CYAN}│${NC}$(printf "%*s" "$__pl" '')${DIM}${__sub}${NC}$(printf "%*s" "$__pr" '')${CYAN}│${NC}"
+    echo -e "  ${CYAN}╰──────────────────────────────────────────────────────╯${NC}"
+    __LOGO_DIR="/data/data/com.termux/files/home/.local/share/asanagi"
+    __SZ=$(stty size 2>/dev/null)
+    if [ -n "$__SZ" ]; then
+        __LINES=${__SZ% *}; __TW=${__SZ#* }
+    else
+        __LINES=${LINES:-24}; __TW=${COLUMNS:-80}
+    fi
+    __LOGO=""; __LW=0
+    if [ -d "$__LOGO_DIR/logo-ladder" ]; then
+        # pilih logo terbesar yang muat: tinggi logo = lebar/2, sisakan ~12 baris untuk menu ringkas
+        __w=""
+        for __cand in 96 88 80 72 64 56 48 40 32 24 16; do
+            if [ $(( __cand / 2 )) -le $(( __LINES - 13 )) ] && [ "$__cand" -le "$__TW" ] \
+               && [ -f "$__LOGO_DIR/logo-ladder/logo-${__cand}.ansi" ]; then
+                __w=$__cand; break
+            fi
+        done
+        if [ -n "$__w" ]; then
+            __LOGO="$__LOGO_DIR/logo-ladder/logo-${__w}.ansi"; __LW=$__w
+        fi
+    fi
+    if [ -z "$__LOGO" ] && [ -f "$__LOGO_DIR/launcher-logo-mini.ansi" ]; then
+        __LOGO="$__LOGO_DIR/launcher-logo-mini.ansi"; __LW=20
+    fi
+    # logo ditampilkan di layar exit, bukan di menu
+    unset __LOGO __LOGO_DIR __LW __TW __LP __LINES __SZ
+    echo -e "  ${GREEN}▸ 1${NC} ${BOLD}Unlimited Proxy${NC} ${DIM}── free · WARP · :8080${NC}"
+    echo -e "      ${DIM}GLM 5.3 Flash · DeepSeek V4.1 · Nemotron 3.5 · LongCat · MiniMax · Flint${NC}"
+    echo -e "  ${YELLOW}▸ 2${NC} ${BOLD}Dual Gateway${NC} ${DIM}── + OpenRouter :8085 (Claude/GPT/Gemini)${NC}"
+    echo -e "  ${DIM}▸ 0${NC} ${BOLD}Direct${NC} ${DIM}── no gateway · opencode.json${NC}"
+    echo -e "  ${RED}▸ q${NC} ${BOLD}Quit${NC}"
+    echo -e "  ${DIM}──────────────────────────────────────────────────────${NC}"
+    printf "   select › ${BOLD}[1/2/0/q]${NC} ${DIM}(enter = 1)${NC} "
+    read -r choice || choice="1"
+    case "$choice" in
+        q|Q) show_farewell; exit 0 ;;
+        0) MODE="0";; 2) MODE="2";; *) MODE="1";;
+    esac
+fi
+
+case "$MODE" in
+    2) echo -e "${CYAN}[*] Dual Gateway Mode...${NC}"; ensure_netproxy; ensure_gateway; ensure_bridge ;;
+    0) echo -e "${CYAN}[*] Direct mode (gateway not required).${NC}"; ensure_netproxy ;;
+    *) echo -e "${CYAN}[*] Unlimited Proxy Mode (Free Tier)...${NC}"; ensure_netproxy; ensure_gateway ;;
+esac
+
+# ---- runtime environment for the v2 musl binary ----------------------------
+export HOME PATH
+export PREFIX
+export TERM="${TERM:-xterm-256color}"
+export LANG="${LANG:-en_US.UTF-8}"
+if [ -z "$TZ" ]; then
+    __TZ=$(getprop persist.sys.timezone 2>/dev/null || true)
+    [ -z "$__TZ" ] && [ -e /etc/localtime ] && __TZ=$(readlink -f /etc/localtime 2>/dev/null | sed 's#.*/zoneinfo/##')
+    [ -n "$__TZ" ] && export TZ="$__TZ"
+    unset __TZ
+fi
+mkdir -p "$HOME/tmp"
+export TMPDIR="${TMPDIR:-$HOME/tmp}"; export TEMP="$TMPDIR"; export TMP="$TMPDIR"
+export ANDROID_ROOT="${ANDROID_ROOT:-/system}"
+# LD_* were already unset at the top of the launcher (before any binary call).
+export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
+export NODE_EXTRA_CA_CERTS="$PREFIX/etc/tls/cert.pem"
+export CURL_CA_BUNDLE="$PREFIX/etc/tls/cert.pem"
+export HTTP_PROXY="http://127.0.0.1:$NETPROXY_PORT";  export http_proxy="$HTTP_PROXY"
+export HTTPS_PROXY="http://127.0.0.1:$NETPROXY_PORT"; export https_proxy="$HTTPS_PROXY"
+export NO_PROXY="localhost,127.0.0.1,::1";            export no_proxy="$NO_PROXY"
+export NODE_OPTIONS="--dns-result-order=ipv4first"
+export OPENCODE_DISABLE_AUTOUPDATE=true
+# Brand the client identity shown by the TUI/window managers (display only).
+export OPENCODE_CLIENT="${OPENCODE_CLIENT:-Asanagi Code}"
+
+STANDALONE="${OPENCODE_STANDALONE:-1}"
+if [ "$STANDALONE" = "1" ]; then
+    # v2.2.7: only `run` accepts --standalone (self-contained, no managed
+    # service). `serve`/`web`/`acp` reject it, so pass them through untouched.
+    case "${PASSTHROUGH[0]}" in
+        run)
+            PASSTHROUGH=("run" "--standalone" "${PASSTHROUGH[@]:1}")
+            ;;
+    esac
+fi
+
+# Preflight: corrupted binary auto-recovery (with recursion guard — the
+# repair path re-runs install.sh, which must never re-trigger repair).
+if ! env -u LD_PRELOAD -u LD_LIBRARY_PATH "$BIN" --version >/dev/null 2>&1; then
+    if [ -n "${ASANAGI_REPAIRING:-}" ]; then
+        echo -e "${RED}[-] Binary still failing after repair. Inspect: $BIN --version${NC}"
+        exit 1
+    fi
+    echo -e "${YELLOW}[!] Binary corrupted. Running auto-recovery...${NC}"
+    ASANAGI_REPAIRING=1 repair_asanagi
+    env -u LD_PRELOAD -u LD_LIBRARY_PATH "$BIN" --version >/dev/null 2>&1 \
+        || { echo -e "${RED}[-] Repair did not fix the binary. Run: asanagi repair${NC}"; exit 1; }
+    echo -e "${GREEN}[+] Binary recovered.${NC}"
+fi
+
+# Managed-service port guard: the v2 TUI auto-starts a shared background
+# server on the port in ~/.config/opencode/service.json (default 49374). If
+# another OpenCode install on this device (e.g. a PRoot distro) already holds
+# that port, move to a free one instead of aborting with
+# "ServeError: Managed service port ... is already in use".
+# Probe via bash /dev/tcp — no external tool, immune to any env weirdness.
+port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+SVC_FILE="$HOME/.config/opencode/service.json"
+SVC_PORT="$(jq -r '.port // 49374' "$SVC_FILE" 2>/dev/null)" || SVC_PORT=49374
+[ -n "$SVC_PORT" ] && [ "$SVC_PORT" != "null" ] || SVC_PORT=49374
+if port_busy "$SVC_PORT"; then
+    # The port is held by another OpenCode instance (foreign service, e.g. a
+    # PRoot distro) or a leftover daemon. Either way the TUI cannot bind it:
+    # move to the next free port. A leftover own-service is harmless (it
+    # idles out); a foreign service must never be touched.
+    for __p in $(seq "$((SVC_PORT + 1))" "$((SVC_PORT + 24))"); do
+        if ! port_busy "$__p"; then
+            mkdir -p "$(dirname "$SVC_FILE")"
+            if [ -f "$SVC_FILE" ] && jq --argjson p "$__p" '.port = $p' "$SVC_FILE" > "$SVC_FILE.tmp" 2>/dev/null; then
+                mv "$SVC_FILE.tmp" "$SVC_FILE"
+            else
+                printf '{"port": %s}\n' "$__p" > "$SVC_FILE"
+            fi
+            echo -e "${YELLOW}[i] Service port $SVC_PORT is held by another OpenCode instance -> moved to $__p${NC}"
+            break
+        fi
+    done
+fi
+unset -f port_busy
+
+
+# ---- jalankan TUI, lalu tampilkan layar perpisahan setelah exit --------------
+"$BIN" "${PASSTHROUGH[@]}"
+__RC=$?
+show_farewell
+exit "$__RC"
