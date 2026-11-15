@@ -1,66 +1,81 @@
 # ✦ Asanagi Code
 
-**Unlimited free-tier AI coding agent untuk Termux/Android** — rebrand OpenCode v2.2.7 dengan gateway self-hosted, pool WARP, dan session re-mint otomatis.
+**Unlimited free-tier AI coding agent for Termux/Android** — an OpenCode v2.2.7 rebrand with a self-hosted gateway, WARP egress pool, and automatic session re-minting.
 
-> Hasil stress test: **55,6M token / ~52 run AI (termasuk 3-session paralel) — nol kegagalan kuota permanen.** Laporan lengkap: [`docs/LAPORAN-STRESS-TEST.md`](docs/LAPORAN-STRESS-TEST.md)
+> Stress test result: **55.6M tokens / ~52 AI runs (including 3 concurrent sessions) — zero permanent quota failures.** Full report: [`docs/LAPORAN-STRESS-TEST.md`](docs/LAPORAN-STRESS-TEST.md)
 
 ---
 
-## Arsitektur
+## One-Shot Install
+
+Run inside **Termux** (normal user, not root):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/exvhoria/Asanagi-Code/main/install.sh | bash
+```
+
+The installer automatically: installs dependencies (musl, proot, python) → downloads the static gateway engine → installs launcher + watchdog + configs → downloads OpenCode CLI v2.2.7 musl (253 MB) → starts the watchdog-supervised gateway → verifies health.
+
+Then just run: **`asanagi`**
+
+---
+
+## Architecture
 
 ```
 ┌──────────────┐     ┌─────────────────────┐     ┌──────────────────┐
-│  TUI/CLI     │────▶│  Gateway (8123)     │────▶│  opencode.ai zen │
+│  TUI/CLI     │────▶│  Gateway (:8123)    │────▶│  opencode.ai zen │
 │  (Asanagi)   │     │  opencode2api +     │     │  free tier       │
 └──────────────┘     │  WARP pool (ipv6) + │     └──────────────────┘
                      │  session re-mint    │
                      └─────────────────────┘
                      ┌─────────────────────┐
-                     │  Watchdog (auto-    │  healthz gagal → restart ±80s
-                     │  heal + 429 storm   │  429 storm → clean state + restart
-                     │  auto-clean)        │
+                     │  Watchdog           │  healthz down → restart ~80s
+                     │  (auto-heal +       │  429 storm → clean state + restart
+                     │  429-storm healing) │
                      └─────────────────────┘
 ```
 
-### Kenapa unlimited bisa?
-Kuota free tier opencode.ai dihitung **per session id + egress**. Gateway ini:
-1. **Re-mint session** otomatis saat 429 (bucket kuota baru) — build dari [opencode2api PR #175](https://github.com/jasonxu114514/opencode2api/pull/175).
-2. **Rotasi egress WARP** (Cloudflare WARP ipv6, pool 6 exit).
-3. **Auto-heal state**: state menumpuk yang terbakar dibersihkan otomatis oleh watchdog.
+### Why is it unlimited?
+The opencode.ai free tier meters usage **per session id + egress**. This gateway:
+1. **Re-mints the session** automatically on 429 (fresh quota bucket) — engine built from [opencode2api PR #175](https://github.com/jasonxu114514/opencode2api/pull/175).
+2. **Rotates WARP egress** (Cloudflare WARP ipv6, pool of 6 exits).
+3. **Auto-heals accumulated state**: burned state files are wiped automatically by the watchdog.
 
-## Isi Repo
+## Repository Layout
 
-| Path | Fungsi |
+| Path | Purpose |
 |---|---|
-| `asanagi-launcher` | Launcher utama (menu, banner, farewell screen) |
-| `gateway/opencode-proxy` | CLI manager gateway (start/stop/status/logs) |
-| `gateway/watchdog.sh` | Supervisor 24/7 (auto-restart + 429 storm heal) |
+| `install.sh` | One-shot installer |
+| `asanagi-launcher` | Main launcher (menu, banner, farewell screen) |
+| `gateway/opencode-proxy` | Gateway CLI manager (start/stop/status/logs) |
+| `gateway/watchdog.sh` | 24/7 supervisor (auto-restart + 429-storm healing) |
 | `gateway/daemon_spawn.py` | Daemonizer |
-| `gateway/config.example.json` | Template config gateway |
-| `discord-bot/` | Bot Discord multipurpose (NodeJS, 21+ command, 223 test hijau) — dibangun penuh oleh AI via gateway sebagai stress test |
-| `docs/LAPORAN-STRESS-TEST.md` | Laporan lengkap stress test + production hardening |
+| `gateway/config.example.json` | Gateway config template |
+| `gateway/opencode.example.jsonc` | OpenCode provider config (12 free models) |
+| `discord-bot/` | Multipurpose Discord bot (NodeJS, 21+ commands, 223 passing tests) — built entirely by the AI through the gateway as a stress test |
+| `docs/LAPORAN-STRESS-TEST.md` | Full stress test + production hardening report (Indonesian) |
 
-## Model Free Tervalidasi
+## Validated Free Models
 
-`glm-5.3-flash-free` · `deepseek-v4.1-flash-free` · `minimax-m3.1-flash-free` · `nemotron-3.5-lightning-free` · `longcat-2.5-free` · `flint-40b-free` · dst. (12 model, semua berakhiran `-free`)
+`glm-5.3-flash-free` · `deepseek-v4.1-flash-free` · `minimax-m3.1-flash-free` · `nemotron-3.5-lightning-free` · `longcat-2.5-free` · `flint-40b-free` · etc. (12 models, all ending in `-free`)
 
-## Instalasi (ringkas)
+## Manual Emergency Recovery
 
-1. Install Termux + proot Ubuntu, lalu pasang OpenCode v2.2.x dan engine:
-   ```bash
-   # engine gateway (arm64):
-   https://github.com/jasonxu114514/opencode2api/releases/download/v1.4.7/opencode2api_v1.4.7_linux_arm64.tar.gz
-   ```
-2. Salin `asanagi-launcher` → `~/.local/bin/opencode` (chmod +x), `gateway/` → `~/.opencode-proxy/`.
-3. Sesuaikan `config.json` dari `config.example.json` (port, keys).
-4. Jalankan `asanagi` → pilih **1 Unlimited Proxy**.
+```bash
+pkill -9 -f "opencode2api -config"   # kill gateway
+rm ~/.opencode-proxy/config.json.*.json ~/.opencode-proxy/config.json.models.* 2>/dev/null
+cd ~/.opencode-proxy && nohup ./bin/opencode2api -config config.json >> proxy.log 2>&1 &
+```
 
-> ⚠️ Catatan: engine build **statis** (`CGO_ENABLED=0`) wajib agar jalan di Termux
-> maupun proot. Lihat bagian Production Hardening di laporan untuk detail
-> troubleshooting (ghost daemon, state burn, port conflict).
+## Engine Build Notes
 
-## Kredit
+The engine **must** be a static build (`CGO_ENABLED=0`) to run on both Termux and proot — dynamic glibc builds fail with `not found` inside Termux. The pinned build is available in [Releases](https://github.com/exvhoria/Asanagi-Code/releases/tag/engine-v1).
+
+See *Production Hardening* in the report for troubleshooting details (ghost daemons, state burn, port conflicts).
+
+## Credits
 
 - [OpenCode](https://github.com/sst/opencode) — CLI/TUI
-- [opencode2api](https://github.com/jasonxu114514/opencode2api) — engine gateway
-- [opencode-termux-unlimited](https://github.com/leangtg123-art/opencode-termux-unlimited) — inspirasi setup original
+- [opencode2api](https://github.com/jasonxu114514/opencode2api) — gateway engine
+- [opencode-termux-unlimited](https://github.com/leangtg123-art/opencode-termux-unlimited) — original setup inspiration
