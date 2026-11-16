@@ -38,17 +38,21 @@ rm -f "$GW/proxy.pid"
 say "${CYAN}[*] Updating package lists (required on fresh Termux)...${NC}"
 pkg update -y >/dev/null 2>&1 || apt update -y >/dev/null 2>&1 \
     || say "${YELLOW}[!] pkg update failed — trying to install anyway${NC}"
-say "${CYAN}[*] Installing dependencies (musl, proot, python)...${NC}"
-pkg install -y musl proot python >/dev/null 2>&1 \
-    || apt install -y musl proot python >/dev/null 2>&1 \
+say "${CYAN}[*] Installing dependencies (proot, python)...${NC}"
+pkg install -y proot python >/dev/null 2>&1 \
+    || apt install -y proot python >/dev/null 2>&1 \
     || say "${YELLOW}[!] pkg/apt failed — trying to continue anyway${NC}"
+
+# musl loader ships bundled with this repo — no pkg needed
 if [ -x "$PREFIX/lib/ld-musl-aarch64.so.1" ]; then
     say "${GREEN}[+] musl loader OK${NC}"
 else
-    die "musl loader is missing (required by the CLI).
-    Fix manually, then re-run this installer:
-        pkg update && pkg install musl
-    If that still fails: run termux-change-repo, select a mirror group, and retry."
+    say "${CYAN}[*] Installing bundled musl loader (723 KB)...${NC}"
+    dl "$REPO/vendor/ld-musl-aarch64.so.1" "$PREFIX/lib/ld-musl-aarch64.so.1"
+    chmod +x "$PREFIX/lib/ld-musl-aarch64.so.1"
+    [ -x "$PREFIX/lib/ld-musl-aarch64.so.1" ] \
+        && say "${GREEN}[+] musl loader installed${NC}" \
+        || die "Could not install the musl loader. Check your network and re-run."
 fi
 command -v python3 >/dev/null 2>&1 || die "python3 missing. Run: pkg update && pkg install python"
 
