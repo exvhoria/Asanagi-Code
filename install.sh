@@ -16,8 +16,8 @@ die(){ say "${RED}[-] $1${NC}"; exit 1; }
 dl(){ curl -fsSL --retry 3 --retry-delay 2 "$1" -o "$2" || die "Download failed: $1"; }
 
 say "${CYAN}╭──────────────────────────────────────╮${NC}"
-say "${CYAN}│   ✦  A S A N A G I   C O D E  ✦     │${NC}"
-say "${CYAN}│   one-shot installer · v2.2.7        │${NC}"
+say "${CYAN}│    ✦  A S A N A G I   C O D E  ✦     │${NC}"
+say "${CYAN}│   one-shot installer - v2.2.7        │${NC}"
 say "${CYAN}╰──────────────────────────────────────╯${NC}"
 
 # ── 0. environment sanity ─────────────────────────────────────
@@ -35,20 +35,22 @@ chmod -R u+rwX "$LIBEXEC" 2>/dev/null || true
 rm -f "$GW/proxy.pid"
 
 # ── 1. dependencies ───────────────────────────────────────────
-say "${CYAN}[*] Installing Termux dependencies (musl, proot, python)...${NC}"
+say "${CYAN}[*] Updating package lists (required on fresh Termux)...${NC}"
+pkg update -y >/dev/null 2>&1 || apt update -y >/dev/null 2>&1 \
+    || say "${YELLOW}[!] pkg update failed — trying to install anyway${NC}"
+say "${CYAN}[*] Installing dependencies (musl, proot, python)...${NC}"
 pkg install -y musl proot python >/dev/null 2>&1 \
     || apt install -y musl proot python >/dev/null 2>&1 \
     || say "${YELLOW}[!] pkg/apt failed — trying to continue anyway${NC}"
 if [ -x "$PREFIX/lib/ld-musl-aarch64.so.1" ]; then
     say "${GREEN}[+] musl loader OK${NC}"
 else
-    say "${YELLOW}[!] musl loader MISSING — attempting manual install${NC}"
-    pkg install -y musl >/dev/null 2>&1 || true
-    [ -x "$PREFIX/lib/ld-musl-aarch64.so.1" ] \
-        && say "${GREEN}[+] musl loader installed${NC}" \
-        || die "musl loader still missing. Run manually: pkg install musl, then re-run this installer."
+    die "musl loader is missing (required by the CLI).
+    Fix manually, then re-run this installer:
+        pkg update && pkg install musl
+    If that still fails: run termux-change-repo, select a mirror group, and retry."
 fi
-command -v python3 >/dev/null 2>&1 || die "python3 missing. Run: pkg install python"
+command -v python3 >/dev/null 2>&1 || die "python3 missing. Run: pkg update && pkg install python"
 
 # ── 2. gateway engine (static build, session re-mint) ─────────
 say "${CYAN}[*] Downloading gateway engine (12 MB)...${NC}"
