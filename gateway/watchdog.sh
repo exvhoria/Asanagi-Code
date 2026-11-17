@@ -11,14 +11,14 @@ FAILS=0
 say() { echo "[$(date '+%m-%d %H:%M:%S')] $1" >> "$LOG"; }
 
 kill_gw() {
-    /data/data/com.termux/files/usr/bin/bash -c 'pkill -9 -f "opencode2ap[i] -config"' 2>/dev/null
+    /data/data/com.termux/files/usr/bin/bash -c 'pkill -9 -f "opencode-proxy/bin/opencode2ap[i]"' 2>/dev/null
     sleep 6
 }
 
 start_gw() {
     cd "$GW" || return 1
     rm -f proxy.pid
-    nohup ./bin/opencode2api -config config.json >> proxy.log 2>&1 &
+    nohup "$GW/bin/opencode2api" -config "$GW/config.json" >> proxy.log 2>&1 &
     sleep 35
     for i in $(seq 1 10); do
         H=$(timeout 5 curl -s "$HEALTH" | head -c 10)
