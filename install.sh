@@ -6,7 +6,7 @@
 set -u
 RED='\033[31m'; GREEN='\033[32m'; YELLOW='\033[33m'; CYAN='\033[36m'; NC='\033[0m'
 REPO="https://raw.githubusercontent.com/exvhoria/Asanagi-Code/main"
-ENGINE_URL="https://github.com/exvhoria/Asanagi-Code/releases/download/engine-v1/opencode2api-linux-arm64"
+ENGINE_URL="https://github.com/exvhoria/Asanagi-Code/releases/download/engine-v2/opencode2api-linux-arm64"
 CLI_URL="https://github.com/sst/opencode/releases/download/v2.2.7/opencode-linux-arm64-musl.tar.gz"
 GW="$HOME/.opencode-proxy"
 LIBEXEC="$PREFIX/libexec/asanagi"

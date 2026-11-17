@@ -70,7 +70,12 @@ cd ~/.opencode-proxy && nohup ./bin/opencode2api -config config.json >> proxy.lo
 
 ## Engine Build Notes
 
-The engine **must** be a static build (`CGO_ENABLED=0`) to run on both Termux and proot — dynamic glibc builds fail with `not found` inside Termux. The pinned build is available in [Releases](https://github.com/exvhoria/Asanagi-Code/releases/tag/engine-v1).
+The engine **must** be a static build (`CGO_ENABLED=0`) to run on both Termux and proot — dynamic glibc builds fail with `not found` inside Termux. The pinned build (`engine-v2`) is **upstream v1.4.8 + PR #175 session re-mint merged**:
+
+- v1.4.8 identity fixes (required): tool-name hashing, fresh project id per request, probe identity — without them, real TUI sessions (which always send tool definitions) hit free-tier 429 even with fresh state.
+- PR #175 (unmerged upstream): re-mints the free-tier session automatically when a bucket is burned, so recovery does not wait for a restart.
+
+The previous build (`engine-v1`) was based on an older upstream and lacked the v1.4.5–v1.4.7 identity fixes — this was the root cause of "unlimited fails when actually used from the TUI" (verified: tool-call requests got 429 on the old build while v1.4.8 passed identical requests).
 
 See *Production Hardening* in the report for troubleshooting details (ghost daemons, state burn, port conflicts).
 
