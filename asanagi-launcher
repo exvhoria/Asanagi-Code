@@ -16,14 +16,18 @@ set -e
 unset LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT
 
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+# Terminus proof: jika dijalankan dari proot (HOME=/root), tetap pakai home Termux
+THOME="/data/data/com.termux/files/home"
+[ "$HOME" = "$THOME" ] || { PROOT_MODE=1; HOME="$THOME"; export HOME; }
+PREFIX="/data/data/com.termux/files/usr"
 LIBEXEC="$PREFIX/libexec/asanagi"
 BIN="$LIBEXEC/asanagi-v2-musl.bin"
 NETPROXY_PORT="${ASANAGI_NET_PROXY_PORT:-8089}"
 GATEWAY_URL="http://127.0.0.1:8123"
 BRIDGE_URL="http://127.0.0.1:8085"
-PROXY_CLI="$HOME/.local/bin/opencode-proxy"
-BRIDGE_CLI="$HOME/.local/bin/openrouter-bridge"
-OPENROUTER_CONFIG="$HOME/.config/openrouter-bridge/config.json"
+PROXY_CLI="$THOME/.local/bin/opencode-proxy"
+BRIDGE_CLI="$THOME/.local/bin/openrouter-bridge"
+OPENROUTER_CONFIG="$THOME/.config/openrouter-bridge/config.json"
 CONFIG_FILE="$HOME/.config/opencode/opencode.json"
 [ -f "$CONFIG_FILE" ] || CONFIG_FILE="$HOME/.config/opencode/opencode.jsonc"
 REPO_CANDIDATES=(
@@ -141,9 +145,14 @@ ensure_netproxy() {
 }
 
 ensure_gateway() {
-    # pastikan watchdog hidup (auto-heal healthz mati & 429 storm)
+    # cegah Android phantom killer mematikan proses latar
+    command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock >/dev/null 2>&1 || true
+    # pastikan watchdog (lapis 1) + watchdog2 (lapis 2, anti-stuck) hidup
     if ! pgrep -f "watchdog.s[h]" >/dev/null 2>&1; then
         ( cd "$HOME/.opencode-proxy" 2>/dev/null && nohup ./watchdog.sh >/dev/null 2>&1 & ) 2>/dev/null
+    fi
+    if ! pgrep -f "watchdog2.s[h]" >/dev/null 2>&1; then
+        ( cd "$HOME/.opencode-proxy" 2>/dev/null && nohup ./watchdog2.sh >/dev/null 2>&1 & ) 2>/dev/null
     fi
     if ! curl -s --max-time 1 "$GATEWAY_URL/healthz" >/dev/null 2>&1; then
         if [ ! -x "$PROXY_CLI" ]; then

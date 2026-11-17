@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # Asanagi Unlimited Gateway manager (opencode2api on 127.0.0.1:8080)
-BASE_DIR="$HOME/.opencode-proxy"
+BASE_DIR="/data/data/com.termux/files/home/.opencode-proxy"
 BIN="$BASE_DIR/bin/opencode2api"
 CONFIG="$BASE_DIR/config.json"
 PID_FILE="$BASE_DIR/proxy.pid"
