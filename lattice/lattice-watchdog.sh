@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Asanagi Unlimited API — Watchdog (standalone instance, port 8133)
-GW=/data/data/com.termux/files/home/asanagi-api
+# Lattice API — Watchdog (standalone instance, port 8133)
+GW=/data/data/com.termux/files/home/lattice
 HEALTH=http://127.0.0.1:8133/healthz
 LOG=$GW/watchdog.log
 FAILS=0
@@ -8,7 +8,7 @@ FAILS=0
 say() { echo "[$(date '+%m-%d %H:%M:%S')] $1" >> "$LOG"; }
 
 kill_gw() {
-    pkill -9 -f "asanagi-ap[i]/bin/opencode2api" 2>/dev/null
+    pkill -9 -f "lattice/bin/opencode2api" 2>/dev/null
     sleep 6
 }
 

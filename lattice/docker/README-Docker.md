@@ -7,7 +7,7 @@ persistent data folder.
 
 ```bash
 cd api/docker
-docker build -t asanagi-api .
+docker build -t lattice .
 ```
 
 ## Run
@@ -15,10 +15,10 @@ docker build -t asanagi-api .
 ```bash
 docker run -d \
   -e PORT=8133 \
-  -e API_KEY=<your-key> \
+  -e API_KEY=Lattice \
   -e WARP=true \
   -p 8133:8133 \
-  asanagi-api
+  lattice
 ```
 
 - `PORT` — TCP port the API listens on (platform may override).
@@ -37,7 +37,7 @@ the platform restarts the container on failure.
 curl http://<host>:8133/healthz
 curl http://<host>:8133/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer <your-key>' \
+  -H 'Authorization: Bearer Lattice' \
   -d '{"model":"glm-5.3-flash-free","messages":[{"role":"user","content":"say ok"}],"max_tokens":50}'
 ```
 

@@ -53,7 +53,7 @@ The opencode.ai free tier meters usage **per session id + egress**. This gateway
 | `gateway/daemon_spawn.py` | Daemonizer |
 | `gateway/config.example.json` | Gateway config template |
 | `gateway/opencode.example.jsonc` | OpenCode provider config (12 free models) |
-| `api/` | Standalone API service (same engine, separate install — for users without Asanagi Code) |
+| `lattice/` | **Lattice** — standalone API service (same engine, separate install — for users without Asanagi Code) |
 | `discord-bot/` | Multipurpose Discord bot (NodeJS, 21+ commands, 223 passing tests) — built entirely by the AI through the gateway as a stress test |
 | `docs/LAPORAN-STRESS-TEST.md` | Full stress test + production hardening report (Indonesian) |
 

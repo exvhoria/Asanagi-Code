@@ -1,4 +1,4 @@
-# Asanagi Unlimited API
+# Lattice
 
 A standalone OpenAI-compatible API powered by the Asanagi gateway engine
 (upstream v1.4.8 + session re-mint). Users do **not** need to install
@@ -7,9 +7,9 @@ Asanagi Code — any OpenAI-compatible client can talk to this API directly.
 ## Layout
 
 ```
-~/asanagi-api/            ← separate from ~/.opencode-proxy (Asanagi Code install)
+~/lattice/            ← separate from ~/.opencode-proxy (Asanagi Code install)
 ├── api.sh                ← service manager (start/stop/status/logs)
-├── watchdog-api.sh       ← 24/7 supervisor for this instance
+├── lattice-watchdog.sh       ← 24/7 supervisor for this instance
 ├── bin/opencode2api      ← engine (static, aarch64)
 └── config.json           ← port, keys, WARP pool
 ```
@@ -17,13 +17,13 @@ Asanagi Code — any OpenAI-compatible client can talk to this API directly.
 ## Quick Start
 
 ```bash
-mkdir -p ~/asanagi-api/bin
-cp engine-binary ~/asanagi-api/bin/opencode2api      # from Releases (engine-v2)
-cp api.sh watchdog-api.sh ~/asanagi-api/             # from this repo: api/
+mkdir -p ~/lattice/bin
+cp engine-binary ~/lattice/bin/opencode2api      # from Releases (engine-v2)
+cp api.sh lattice-watchdog.sh ~/lattice/             # from this repo: api/
 # create config.json (see gateway/config.example.json): set listen 127.0.0.1:8133
 #   server_keys: ["<your-key>"], webui.enabled: false
-chmod +x ~/asanagi-api/api.sh ~/asanagi-api/watchdog-api.sh ~/asanagi-api/bin/opencode2api
-~/asanagi-api/api.sh start
+chmod +x ~/lattice/api.sh ~/lattice/lattice-watchdog.sh ~/lattice/bin/opencode2api
+~/lattice/lattice/api.sh start
 ```
 
 ## Using the API
@@ -62,9 +62,9 @@ curl http://127.0.0.1:8133/healthz
 ## Operations
 
 ```bash
-~/asanagi-api/api.sh status    # status, WARP pool, model count
-~/asanagi-api/api.sh logs 50   # tail gateway log
-~/asanagi-api/api.sh stop      # stop gateway + watchdog
+~/lattice/api.sh status    # status, WARP pool, model count
+~/lattice/api.sh logs 50   # tail gateway log
+~/lattice/api.sh stop      # stop gateway + watchdog
 ```
 
 The watchdog auto-restarts on health failures (~80s) and auto-cleans burned

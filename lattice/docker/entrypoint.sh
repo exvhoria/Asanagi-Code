@@ -5,7 +5,7 @@
 #   automatically restarts WITHOUT warp and keeps serving.
 set -u
 PORT="${PORT:-8133}"
-API_KEY="${API_KEY:-change-me}"
+API_KEY="${API_KEY:-Lattice}"
 WARP="${WARP:-true}"
 
 write_config() {
@@ -32,7 +32,7 @@ for i in $(seq 1 12); do
 done
 
 if [ -z "$H" ] && [ "$WARP" = "true" ]; then
-    echo "[asanagi-api] healthz not ready with WARP=true — host likely blocks UDP, restarting WITHOUT warp"
+    echo "[lattice] healthz not ready with WARP=true — host likely blocks UDP, restarting WITHOUT warp"
     kill "$PID" 2>/dev/null
     sleep 3
     write_config "false"

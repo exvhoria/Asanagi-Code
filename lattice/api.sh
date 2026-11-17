@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Asanagi Unlimited API — service manager
+# Lattice API — service manager
 # usage: api.sh start|stop|status|logs [n]
-GW=/data/data/com.termux/files/home/asanagi-api
+GW=/data/data/com.termux/files/home/lattice
 HEALTH=http://127.0.0.1:8133/healthz
 
 case "$1" in
@@ -11,10 +11,10 @@ start)
         exit 0
     fi
     # watchdog dijamin hidup
-    pgrep -f "watchdog-ap[i]" >/dev/null 2>&1 || \
-        ( cd "$GW" && nohup ./watchdog-api.sh >/dev/null 2>&1 & )
+    pgrep -f "lattice-watchdog" >/dev/null 2>&1 || \
+        ( cd "$GW" && nohup ./lattice-watchdog.sh >/dev/null 2>&1 & )
     # gateway distart langsung (tidak nunggu loop watchdog)
-    if ! pgrep -f "asanagi-ap[i]/bin/opencode2api" >/dev/null 2>&1; then
+    if ! pgrep -f "lattice/bin/opencode2api" >/dev/null 2>&1; then
         echo "[*] starting API gateway (port 8133, watchdog supervised)..."
         nohup "$GW/bin/opencode2api" -config "$GW/config.json" >> "$GW/api-gateway.log" 2>&1 &
     else
@@ -29,15 +29,15 @@ start)
     if [ -n "$H" ]; then
         echo "[+] API ready: $HEALTH"
         echo "    base_url : http://127.0.0.1:8133/v1"
-        echo "    api_key  : AsanagiCodeAPI"
+        echo "    api_key  : Lattice"
     else
         echo "[-] not ready — check: tail $GW/api-gateway.log"
         exit 1
     fi
     ;;
 stop)
-    pkill -9 -f "asanagi-ap[i]/bin/opencode2api" 2>/dev/null
-    pkill -f "watchdog-ap[i]" 2>/dev/null
+    pkill -9 -f "lattice/bin/opencode2api" 2>/dev/null
+    pkill -f "lattice-watchdog" 2>/dev/null
     echo "[+] API stopped"
     ;;
 status)
