@@ -40,7 +40,9 @@ clean_state() {
 }
 
 say "=== watchdog start (pid $$) ==="
+date +%s > "$GW/watchdog.heartbeat"
 while true; do
+    date +%s > "$GW/watchdog.heartbeat"
     sleep 45
     H=$(timeout 5 curl -s "$HEALTH" | head -c 10)
     if [ -n "$H" ]; then
