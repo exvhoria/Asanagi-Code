@@ -1,5 +1,5 @@
 #!/bin/sh
-# Asanagi Unlimited API — container entrypoint
+# Lattice — container entrypoint
 # - Writes config.json into /data (the persistent data folder)
 # - Starts the engine; if WARP init fails (host blocks UDP) it
 #   automatically restarts WITHOUT warp and keeps serving.
