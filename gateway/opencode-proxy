@@ -76,17 +76,10 @@ start_proxy() {
     fi
     export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
     export SSL_CERT_DIR="$PREFIX/etc/ssl/certs"
-    echo "[*] Starting gateway daemon on 127.0.0.1:8080 (WARP pool)..."
-    local runner=()
-    if command -v termux-chroot >/dev/null 2>&1; then runner=(termux-chroot); fi
-    python3 "$SPAWNER" "$PID_FILE" "$LOG_FILE" "${runner[@]}" "$BIN" -config "$CONFIG"
+    echo "[*] Starting gateway daemon (direct nohup — proven path)..."
+    local LOG_FILE="$BASE_DIR/proxy.log"
+    ( cd "$BASE_DIR" && nohup "$BIN" -config "$CONFIG" >> "$LOG_FILE" 2>&1 & echo $! > "$PID_FILE" )
     sleep 2
-    if ! get_pid >/dev/null 2>&1; then
-        # fallback: daemon_spawn.py bisa gagal di proot (ptrace) — start langsung
-        echo "[*] Spawner failed, starting directly..."
-        ( cd "$BASE_DIR" && nohup "$BIN" -config "$CONFIG" >> "$LOG_FILE" 2>&1 & echo $! > "$PID_FILE" )
-        sleep 2
-    fi
     if get_pid >/dev/null 2>&1; then
         echo "[+] Gateway started successfully (PID: $(get_pid))"
     else
