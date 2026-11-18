@@ -14,9 +14,20 @@ Run inside **Termux** (normal user, not root):
 curl -fsSL https://raw.githubusercontent.com/exvhoria/Asanagi-Code/main/install.sh | bash
 ```
 
-The installer automatically: installs dependencies (python, jq, util-linux) and the bundled musl loader → downloads the static gateway engine → installs launcher + watchdog + gateway config → writes the OpenCode provider config (with a backup of any existing one) → downloads OpenCode CLI v2.2.7 musl (253 MB) → starts the watchdog-supervised gateway.
+The installer automatically: installs dependencies (python, jq, util-linux, patchelf) and the Alpine musl/C++ runtime → downloads the static gateway engine → installs launcher + watchdog + gateway config → writes the OpenCode provider config (with a backup of any existing one) → downloads OpenCode CLI v2.2.7 musl (253 MB) → patches it for the musl loader → starts the watchdog-supervised gateway.
 
 Then just run: **`asanagi`**
+
+### Optional: test inside PRoot
+
+Asanagi Code is designed to run **natively in Termux without PRoot**. PRoot mode exists for testing and installs the CLI only — it reuses the gateway running in Termux and **never replaces the distro's original `opencode`**:
+
+```bash
+proot-distro login ubuntu
+bash "/storage/emulated/0/Asanagi Code/install.sh"
+```
+
+The launcher is installed as **`asanagi`** (and `opencode-asanagi`). The gateway on `127.0.0.1:8123` must already be running in Termux (`opencode-proxy start`). For the full installation, use native Termux.
 
 ---
 
@@ -46,7 +57,7 @@ The opencode.ai free tier meters usage **per session id + egress**. This gateway
 
 | Path | Purpose |
 |---|---|
-| `install.sh` | One-shot installer |
+| `install.sh` | One-shot installer (native Termux; PRoot test mode) |
 | `asanagi-launcher` | Main launcher (menu, banner, farewell screen) |
 | `gateway/opencode-proxy` | Gateway CLI manager (start/stop/status/logs) |
 | `gateway/watchdog.sh` | 24/7 supervisor (auto-restart + 429-storm healing) |

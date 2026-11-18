@@ -6,7 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **PRoot test mode** in `install.sh`: when run inside a PRoot distro it installs
+  the CLI only, reuses the Termux gateway on `127.0.0.1:8123`, and never replaces
+  the distro's original `opencode` (launchers are `asanagi` / `opencode-asanagi`).
+  A prominent notice reminds users that Asanagi Code runs natively in Termux
+  without PRoot.
+- **`ASANAGI_TARBALL`** environment variable for offline/test installs from a
+  local CLI tarball.
+
 ### Fixed
+- **Fresh-install musl runtime**: the installer now downloads the Alpine
+  `musl`/`libstdc++`/`libgcc` packages, installs `libc.musl-aarch64.so.1`, and
+  runs `patchelf --set-interpreter/--set-rpath` on the CLI. Previously a fresh
+  install moved the unpatched binary in place, which expects
+  `/lib/ld-musl-aarch64.so.1` — a path that does not exist in Termux.
+- **Config backups**: an existing `opencode.jsonc` *and* `opencode.json` are
+  backed up before the generated provider config is written.
 - **Full upstream reasoning effort**: the `asanagi` provider was migrated to the
   V2 format (`providers` + `package`) and now uses `canonical: "opencode"`, so
   model metadata — effort variants, limits, and compatibility — follows the
