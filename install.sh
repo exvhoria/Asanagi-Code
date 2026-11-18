@@ -72,6 +72,7 @@ dl "$REPO/gateway/opencode.example.jsonc" "$HOME/.config/opencode/opencode.jsonc
 dl "$REPO/asanagi-launcher"            "$HOME/.local/bin/opencode"
 chmod +x "$HOME/.local/bin/opencode" "$HOME/.local/bin/opencode-proxy" "$GW/watchdog.sh" "$GW/watchdog2.sh"
 ln -sfn /data/data/com.termux/files/home/.local/bin/opencode "$PREFIX/bin/asanagi"
+ln -sfn /data/data/com.termux/files/home/.local/bin/opencode "$PREFIX/bin/opencode"
 
 # ── 4. active gateway config (port 8123) ──────────────────────
 python3 - "$GW/config.example.json" "$GW/config.json" << 'PY'
