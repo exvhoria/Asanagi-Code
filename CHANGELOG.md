@@ -17,6 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Compact installer UI**: spinner for each step and a live progress bar
   (percent, downloaded/total, speed) for the 114 MB CLI download; the noisy
   multi-line curl meter is gone.
+- **VirusTotal verification**: new `SECURITY.md` with SHA-256 checksums and
+  VirusTotal report links for the installer, launcher, gateway engine,
+  proxy manager, both watchdogs, and the upstream CLI tarball — all scanned
+  with 0 malicious / 0 suspicious detections. README now shows a badge and a
+  summary table.
 
 ### Fixed
 - **Fresh-install musl runtime**: the installer now downloads the Alpine

@@ -4,6 +4,10 @@
 
 > Stress test result: **55.6M tokens / ~52 AI runs (including 3 concurrent sessions) — zero permanent quota failures.** Full report: [`docs/STRESS-TEST-REPORT.md`](docs/STRESS-TEST-REPORT.md)
 
+[![VirusTotal](https://img.shields.io/badge/VirusTotal-0%20detections-brightgreen)](SECURITY.md)
+
+> **Security:** every published artifact — installer, launcher, gateway engine, watchdogs, and the 114 MB upstream CLI tarball — was scanned on VirusTotal (2026-11-19) with **0 malicious / 0 suspicious detections**. SHA-256 checksums and report links: [`SECURITY.md`](SECURITY.md).
+
 ---
 
 ## One-Shot Install
@@ -28,6 +32,23 @@ bash "/storage/emulated/0/Asanagi Code/install.sh"
 ```
 
 The launcher is installed as **`asanagi`** (and `opencode-asanagi`). The gateway on `127.0.0.1:8123` must already be running in Termux (`opencode-proxy start`). For the full installation, use native Termux.
+
+---
+
+## Security & VirusTotal
+
+All published artifacts were scanned on VirusTotal on **2026-11-19** — **0 malicious / 0 suspicious** detections:
+
+| Artifact | Detections | Report |
+|---|---|---|
+| `install.sh` | 0 / 61 | [VirusTotal](https://www.virustotal.com/gui/file/7c42ec82fa25a7ca26563e77866314c9b0fd4c85c3af4097ea97a27c11815d20) |
+| `asanagi-launcher` | 0 / 60 | [VirusTotal](https://www.virustotal.com/gui/file/d67230060b16f5e784ef5e1415f32eea30dd06ce0a3d4c721acf234e5fbd8f94) |
+| `gateway/opencode-proxy` | 0 / 61 | [VirusTotal](https://www.virustotal.com/gui/file/7c2a0782652c71e482cc759cef12f51948723b1af73e0a3e90d741ec0d94a87d) |
+| `gateway/watchdog.sh` + `watchdog2.sh` | 0 / 61 · 0 / 56 | [Watchdog 1](https://www.virustotal.com/gui/file/530e2da0d6156cdea9976d128aca03ddf0cdf65669789376dafc3ed056516734) · [Watchdog 2](https://www.virustotal.com/gui/file/2df4fd4549bd1460a6fc265b053fcc997bb87ab499f13d4619d72d4aa72626dc) |
+| Gateway engine (`engine-v2`) | 0 / 62 | [VirusTotal](https://www.virustotal.com/gui/file/f6a141b7431b4cff6c0eb6d4a1337dc553fbae7df7a6b59be86bf705c67d44e1) |
+| OpenCode CLI v2.2.7 tarball (upstream `sst/opencode`) | 0 / 61 | [VirusTotal](https://www.virustotal.com/gui/file/a03405f94ae02db7acb0870cf32030bab86460dc7faf524780e9cae305526b96) |
+
+SHA-256 checksums, download sources, and verification steps: [`SECURITY.md`](SECURITY.md).
 
 ---
 
@@ -66,6 +87,7 @@ The opencode.ai free tier meters usage **per session id + egress**. This gateway
 | `lattice/` | **Lattice** — standalone API service (same engine, separate install — for users without Asanagi Code) |
 | `discord-bot/` | Multipurpose Discord bot (NodeJS, 21+ commands, 223 passing tests) — built entirely by the AI through the gateway as a stress test |
 | `docs/STRESS-TEST-REPORT.md` | Full stress test + production hardening report |
+| `SECURITY.md` | VirusTotal reports, SHA-256 checksums, verification steps |
 
 ## Validated Free Models
 
