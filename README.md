@@ -2,7 +2,7 @@
 
 **Unlimited free-tier AI coding agent for Termux/Android** — an OpenCode v2.2.7 rebrand with a self-hosted gateway, WARP egress pool, and automatic session re-minting.
 
-> Stress test result: **55.6M tokens / ~52 AI runs (including 3 concurrent sessions) — zero permanent quota failures.** Full report: [`docs/LAPORAN-STRESS-TEST.md`](docs/LAPORAN-STRESS-TEST.md)
+> Stress test result: **55.6M tokens / ~52 AI runs (including 3 concurrent sessions) — zero permanent quota failures.** Full report: [`docs/STRESS-TEST-REPORT.md`](docs/STRESS-TEST-REPORT.md)
 
 ---
 
@@ -14,7 +14,7 @@ Run inside **Termux** (normal user, not root):
 curl -fsSL https://raw.githubusercontent.com/exvhoria/Asanagi-Code/main/install.sh | bash
 ```
 
-The installer automatically: installs dependencies (musl, proot, python) → downloads the static gateway engine → installs launcher + watchdog + configs → downloads OpenCode CLI v2.2.7 musl (253 MB) → starts the watchdog-supervised gateway → verifies health.
+The installer automatically: installs dependencies (python, jq, util-linux) and the bundled musl loader → downloads the static gateway engine → installs launcher + watchdog + gateway config → writes the OpenCode provider config (with a backup of any existing one) → downloads OpenCode CLI v2.2.7 musl (253 MB) → starts the watchdog-supervised gateway.
 
 Then just run: **`asanagi`**
 
@@ -54,11 +54,32 @@ The opencode.ai free tier meters usage **per session id + egress**. This gateway
 | `gateway/opencode.example.jsonc` | OpenCode provider config (11 free models) |
 | `lattice/` | **Lattice** — standalone API service (same engine, separate install — for users without Asanagi Code) |
 | `discord-bot/` | Multipurpose Discord bot (NodeJS, 21+ commands, 223 passing tests) — built entirely by the AI through the gateway as a stress test |
-| `docs/LAPORAN-STRESS-TEST.md` | Full stress test + production hardening report (Indonesian) |
+| `docs/STRESS-TEST-REPORT.md` | Full stress test + production hardening report |
 
 ## Validated Free Models
 
 `beam-free` · `big-pickle` · `deepseek-v4.1-flash-free` · `flint-40b-free` · `hy4-flash-free` · `iceman-free` · `inkling-2-small-free` · `longcat-2.5-free` · `mimo-v2.6-flash-free` · `nemotron-3.5-lightning-free` · `nemotron-3.5-super-vl-free` (11 free-tier models)
+
+### Reasoning effort (upstream parity)
+
+The `asanagi` provider sets `canonical: "opencode"`, so OpenCode inherits the
+exact upstream catalog metadata (variants, limits, compatibility) for matching
+model IDs. This is why DeepSeek exposes the full ladder — not just `high`:
+
+| Model | Variants |
+|---|---|
+| `deepseek-v4.1-flash-free` | `low` · `high` · `max` |
+| `beam-free`, `flint-40b-free` | `low` · `medium` · `high` · `xhigh` · `max` |
+| `inkling-2-small-free` | `none` · `minimal` · `low` · `medium` · `high` · `max` |
+| `nemotron-3.5-super-vl-free` | `none` · `minimal` · `low` · `medium` · `high` · `xhigh` |
+| `hy4-flash-free` | `none` · `high` |
+| `big-pickle`, `iceman-free`, `longcat-2.5-free`, `mimo-v2.6-flash-free`, `nemotron-3.5-lightning-free` | no variants |
+
+Select one with `#variant`, for example:
+
+```bash
+opencode run --model asanagi/deepseek-v4.1-flash-free#max "Review this migration"
+```
 
 ## Manual Emergency Recovery
 

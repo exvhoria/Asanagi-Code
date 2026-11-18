@@ -62,19 +62,149 @@ say "${CYAN}[*] Downloading gateway engine (12 MB)...${NC}"
 dl "$ENGINE_URL" "$GW/bin/opencode2api"
 chmod 771 "$GW/bin/opencode2api"
 
-# ── 3. gateway tools + launcher + configs ─────────────────────
+# ── 3. gateway tools + launcher ───────────────────────────────
 say "${CYAN}[*] Downloading gateway tools + launcher...${NC}"
 dl "$REPO/gateway/opencode-proxy"      "$HOME/.local/bin/opencode-proxy"
 dl "$REPO/gateway/watchdog.sh"         "$GW/watchdog.sh"
 dl "$REPO/gateway/watchdog2.sh"        "$GW/watchdog2.sh"
 dl "$REPO/gateway/config.example.json" "$GW/config.example.json"
-dl "$REPO/gateway/opencode.example.jsonc" "$HOME/.config/opencode/opencode.jsonc"
 dl "$REPO/asanagi-launcher"            "$HOME/.local/bin/opencode"
 chmod +x "$HOME/.local/bin/opencode" "$HOME/.local/bin/opencode-proxy" "$GW/watchdog.sh" "$GW/watchdog2.sh"
 ln -sfn /data/data/com.termux/files/home/.local/bin/opencode "$PREFIX/bin/asanagi"
 ln -sfn /data/data/com.termux/files/home/.local/bin/opencode "$PREFIX/bin/opencode"
 
-# ── 4. active gateway config (port 8123) ──────────────────────
+# ── 4. OpenCode provider config (written inline) ──────────────
+# Generated locally so a one-shot install never depends on a separately
+# published template. canonical: "opencode" inherits the full upstream
+# metadata (reasoning variants, limits, compatibility) per model id.
+CFG="$HOME/.config/opencode/opencode.jsonc"
+if [ -f "$CFG" ]; then
+    BK="$CFG.bak-$(date +%Y%m%d%H%M%S)"
+    cp -p "$CFG" "$BK" 2>/dev/null || cp "$CFG" "$BK"
+    say "${GREEN}[+] Existing OpenCode config backed up:${NC} $BK"
+fi
+cat > "$CFG" << 'JSON'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "update": "disable",
+  "model": "asanagi/deepseek-v4.1-flash-free",
+  "permission": {
+    "*": "allow",
+    "bash": "allow",
+    "read": "allow",
+    "write": "allow",
+    "edit": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "websearch": "allow"
+  },
+  "providers": {
+    "asanagi": {
+      "name": "Asanagi Unlimited",
+      // Inherit upstream OpenCode model metadata (reasoning variants, limits,
+      // compatibility) for matching model IDs. This is what exposes the full
+      // effort ladder, e.g. DeepSeek V4.1 Flash: low / high / max.
+      "canonical": "opencode",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "http://127.0.0.1:8123/v1",
+        "apiKey": "local-test-key"
+      },
+      "models": {
+        "deepseek-v4.1-flash-free": {
+          "name": "[Asanagi] DeepSeek V4.1 Flash"
+        },
+        "nemotron-3.5-lightning-free": {
+          "name": "[Asanagi] Nemotron 3.5 Lightning"
+        },
+        "nemotron-3.5-super-vl-free": {
+          "name": "[Asanagi] Nemotron 3.5 Super VL"
+        },
+        "flint-40b-free": {
+          "name": "[Asanagi] Flint 40B"
+        },
+        "big-pickle": {
+          "name": "[Asanagi] Big Pickle"
+        },
+        "beam-free": {
+          "name": "[Asanagi] Beam"
+        },
+        "iceman-free": {
+          "name": "[Asanagi] Iceman"
+        },
+        "inkling-2-small-free": {
+          "name": "[Asanagi] Inkling 2 Small"
+        },
+        "longcat-2.5-free": {
+          "name": "[Asanagi] LongCat 2.5"
+        },
+        "mimo-v2.6-flash-free": {
+          "name": "[Asanagi] MiMo v2.6 Flash"
+        },
+        "hy4-flash-free": {
+          "name": "[Asanagi] HY4 Flash",
+          // Pinned: the CLI 2.2.7 bundled catalog predates hy4, so canonical
+          // alone would fall back to low/medium/high and a 200K context limit.
+          "limit": { "context": 1048576, "output": 65536 },
+          "variants": [
+            { "id": "none", "settings": { "reasoningEffort": "none" } },
+            { "id": "high", "settings": { "reasoningEffort": "high" } }
+          ]
+        }
+      }
+    },
+    "openrouter": {
+      "name": "openrouter",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "http://127.0.0.1:8085/v1"
+      },
+      "models": {
+        "anthropic/claude-3.7-sonnet": {},
+        "anthropic/claude-3.5-sonnet": {},
+        "openai/gpt-4o": {},
+        "openai/o3-mini": {},
+        "deepseek/deepseek-chat": {},
+        "google/gemini-2.5-pro": {},
+        "meta-llama/llama-3.3-70b-instruct": {}
+      }
+    }
+  }
+}
+JSON
+chmod 600 "$CFG"
+python3 - "$CFG" << 'PY' || die "Generated OpenCode config is invalid"
+import json, sys
+src = open(sys.argv[1]).read()
+out, i, n, in_str, esc = [], 0, len(src), False, False
+while i < n:
+    c = src[i]
+    if in_str:
+        out.append(c)
+        if esc:
+            esc = False
+        elif c == '\\':
+            esc = True
+        elif c == '"':
+            in_str = False
+        i += 1
+    elif c == '"':
+        in_str = True
+        out.append(c)
+        i += 1
+    elif c == '/' and i + 1 < n and src[i+1] == '/':
+        while i < n and src[i] != '\n':
+            i += 1
+    else:
+        out.append(c)
+        i += 1
+cfg = json.loads(''.join(out))
+n = len(cfg['providers']['asanagi']['models'])
+print('[+] OpenCode config written and validated (%d asanagi models)' % n)
+PY
+
+# ── 5. active gateway config (port 8123) ──────────────────────
 python3 - "$GW/config.example.json" "$GW/config.json" << 'PY'
 import json, sys
 c = json.load(open(sys.argv[1]))
@@ -85,7 +215,7 @@ json.dump(c, open(sys.argv[2], 'w'), indent=2)
 print('[+] gateway config written (port 8123)')
 PY
 
-# ── 5. OpenCode CLI v2.2.7 musl (253 MB) ──────────────────────
+# ── 6. OpenCode CLI v2.2.7 musl (253 MB) ──────────────────────
 if [ -x "$LIBEXEC/asanagi-v2-musl.bin" ]; then
     say "${GREEN}[+] CLI already installed, skipping download.${NC}"
 else
@@ -98,7 +228,7 @@ else
     rm -rf "$TMP"
 fi
 
-# ── 6. start watchdog + gateway ───────────────────────────────
+# ── 7. start watchdog + gateway ───────────────────────────────
 say "${CYAN}[*] Starting gateway + watchdog...${NC}"
 touch "$GW/proxy.log" "$GW/watchdog.log" 2>/dev/null || die "Cannot write in $GW — fix permissions and re-run."
 "$HOME/.local/bin/opencode-proxy" start || die "Gateway startup failed — check $GW/proxy.log"
