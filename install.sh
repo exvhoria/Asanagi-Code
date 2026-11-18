@@ -26,6 +26,7 @@ if [ "$(id -u)" = "0" ]; then
     die "Running as root is not supported (pkg/apt break and files get wrong ownership).
     Open Termux as the NORMAL user and run the installer again."
 fi
+[ "$HOME" = /data/data/com.termux/files/home ] || die "Run in the normal Termux shell; HOME must be the Termux home, not /root."
 mkdir -p "$TMP" "$GW/bin" "$LIBEXEC" "$HOME/.local/bin" "$PREFIX/bin" "$HOME/.config/opencode" || \
     die "Cannot create install directories — check storage permissions (termux-setup-storage)."
 
@@ -38,9 +39,9 @@ rm -f "$GW/proxy.pid"
 say "${CYAN}[*] Updating package lists (required on fresh Termux)...${NC}"
 pkg update -y >/dev/null 2>&1 || apt update -y >/dev/null 2>&1 \
     || say "${YELLOW}[!] pkg update failed — trying to install anyway${NC}"
-say "${CYAN}[*] Installing dependencies (proot, python)...${NC}"
-pkg install -y proot python >/dev/null 2>&1 \
-    || apt install -y proot python >/dev/null 2>&1 \
+say "${CYAN}[*] Installing dependencies (python, jq, util-linux)...${NC}"
+pkg install -y python jq util-linux >/dev/null 2>&1 \
+    || apt install -y python jq util-linux >/dev/null 2>&1 \
     || say "${YELLOW}[!] pkg/apt failed — trying to continue anyway${NC}"
 
 # musl loader ships bundled with this repo — no pkg needed
@@ -65,12 +66,13 @@ chmod 771 "$GW/bin/opencode2api"
 say "${CYAN}[*] Downloading gateway tools + launcher...${NC}"
 dl "$REPO/gateway/opencode-proxy"      "$HOME/.local/bin/opencode-proxy"
 dl "$REPO/gateway/watchdog.sh"         "$GW/watchdog.sh"
+dl "$REPO/gateway/watchdog2.sh"        "$GW/watchdog2.sh"
 dl "$REPO/gateway/daemon_spawn.py"     "$GW/daemon_spawn.py"
 dl "$REPO/gateway/config.example.json" "$GW/config.example.json"
 dl "$REPO/gateway/opencode.example.jsonc" "$HOME/.config/opencode/opencode.jsonc"
 dl "$REPO/asanagi-launcher"            "$HOME/.local/bin/opencode"
-chmod +x "$HOME/.local/bin/opencode" "$HOME/.local/bin/opencode-proxy" "$GW/watchdog.sh"
-ln -sf "$HOME/.local/bin/opencode" "$PREFIX/bin/asanagi"
+chmod +x "$HOME/.local/bin/opencode" "$HOME/.local/bin/opencode-proxy" "$GW/watchdog.sh" "$GW/watchdog2.sh"
+ln -sfn /data/data/com.termux/files/home/.local/bin/opencode "$PREFIX/bin/asanagi"
 
 # ── 4. active gateway config (port 8123) ──────────────────────
 python3 - "$GW/config.example.json" "$GW/config.json" << 'PY'
@@ -99,16 +101,9 @@ fi
 # ── 6. start watchdog + gateway ───────────────────────────────
 say "${CYAN}[*] Starting gateway + watchdog...${NC}"
 touch "$GW/proxy.log" "$GW/watchdog.log" 2>/dev/null || die "Cannot write in $GW — fix permissions and re-run."
-( cd "$GW" && nohup ./watchdog.sh >/dev/null 2>&1 & )
-sleep 45
-H=""
-for i in $(seq 1 10); do
-    H=$(timeout 5 curl -s http://127.0.0.1:8123/healthz 2>/dev/null | head -c 10)
-    [ -n "$H" ] && break
-    say "${YELLOW}[~] waiting for gateway ($i/10)...${NC}"
-    sleep 6
-done
-[ -n "$H" ] || die "Gateway not ready — check logs: cat $GW/proxy.log"
+"$HOME/.local/bin/opencode-proxy" start || die "Gateway startup failed — check $GW/proxy.log"
+nohup "$GW/watchdog.sh" </dev/null >/dev/null 2>&1 &
+nohup "$GW/watchdog2.sh" </dev/null >/dev/null 2>&1 &
 
 say ""
 say "${GREEN}╭──────────────────────────────────────╮${NC}"

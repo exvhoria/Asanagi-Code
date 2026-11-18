@@ -16,7 +16,7 @@ set -e
 unset LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT
 
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
-# Terminus proof: jika dijalankan dari proot (HOME=/root), tetap pakai home Termux
+# Resolve one installation even when invoked from a PRoot shell.
 THOME="/data/data/com.termux/files/home"
 [ "$HOME" = "$THOME" ] || { PROOT_MODE=1; HOME="$THOME"; export HOME; }
 PREFIX="/data/data/com.termux/files/usr"
@@ -145,33 +145,22 @@ ensure_netproxy() {
 }
 
 ensure_gateway() {
-    # cegah Android phantom killer mematikan proses latar
+    # A wake lock prevents CPU sleep, not Android's process killer.
     command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock >/dev/null 2>&1 || true
-    # pastikan watchdog (lapis 1) + watchdog2 (lapis 2, anti-stuck) hidup
-    if ! pgrep -f "watchdog.s[h]" >/dev/null 2>&1; then
-        ( cd "$HOME/.opencode-proxy" 2>/dev/null && nohup ./watchdog.sh >/dev/null 2>&1 & ) 2>/dev/null
+    if [ ! -x "$PROXY_CLI" ]; then
+        echo -e "${RED}[-] Gateway manager missing: $PROXY_CLI${NC}"; exit 1
     fi
-    if ! pgrep -f "watchdog2.s[h]" >/dev/null 2>&1; then
-        ( cd "$HOME/.opencode-proxy" 2>/dev/null && nohup ./watchdog2.sh >/dev/null 2>&1 & ) 2>/dev/null
-    fi
-    if ! curl -s --max-time 1 "$GATEWAY_URL/healthz" >/dev/null 2>&1; then
-        if [ ! -x "$PROXY_CLI" ]; then
-            echo -e "${RED}[-] Gateway manager missing. Re-install: asanagi repair${NC}"; exit 1
-        fi
-        echo -e "${YELLOW}[*] Starting Unlimited Gateway (port 8080, WARP pool)...${NC}"
-        "$PROXY_CLI" start >/dev/null 2>&1 || "$PROXY_CLI" start || true
-        local waited=0
-        while [ $waited -lt 45 ]; do
-            if curl -s --max-time 1 "$GATEWAY_URL/healthz" >/dev/null 2>&1; then
-                echo -e "\r${GREEN}[+] Unlimited Gateway ready.                        ${NC}"; return 0
-            fi
-            sleep 1; waited=$((waited+1))
-            echo -ne "\r${CYAN}[*] Waiting for gateway + WARP egress (${waited}/45s)...${NC}"
-        done
-        echo ""
-        echo -e "${RED}[-] Gateway not ready after 45s. Try: opencode-proxy restart${NC}"
-        "$PROXY_CLI" logs 2>/dev/null | tail -n 8 || true
+    if ! "$PROXY_CLI" start; then
+        echo -e "${RED}[-] Gateway startup failed. Check: $PROXY_CLI logs${NC}"
         exit 1
+    fi
+    # Start supervisors only after the manager has finished initial startup.
+    local gw="$THOME/.opencode-proxy"
+    if [ -x "$gw/watchdog.sh" ] && ! pgrep -f '\.opencode-proxy/watchdog\.sh' >/dev/null 2>&1; then
+        nohup "$gw/watchdog.sh" </dev/null >/dev/null 2>&1 &
+    fi
+    if [ -x "$gw/watchdog2.sh" ] && ! pgrep -f '\.opencode-proxy/watchdog2\.sh' >/dev/null 2>&1; then
+        nohup "$gw/watchdog2.sh" </dev/null >/dev/null 2>&1 &
     fi
 }
 
@@ -349,7 +338,7 @@ if [ -z "$MODE" ]; then
     fi
     # logo ditampilkan di layar exit, bukan di menu
     unset __LOGO __LOGO_DIR __LW __TW __LP __LINES __SZ
-    echo -e "  ${GREEN}▸ 1${NC} ${BOLD}Unlimited Proxy${NC} ${DIM}── free · WARP · :8080${NC}"
+    echo -e "  ${GREEN}▸ 1${NC} ${BOLD}Unlimited Proxy${NC} ${DIM}── free · WARP · :8123${NC}"
     echo -e "      ${DIM}GLM 5.3 Flash · DeepSeek V4.1 · Nemotron 3.5 · LongCat · MiniMax · Flint${NC}"
     echo -e "  ${YELLOW}▸ 2${NC} ${BOLD}Dual Gateway${NC} ${DIM}── + OpenRouter :8085 (Claude/GPT/Gemini)${NC}"
     echo -e "  ${DIM}▸ 0${NC} ${BOLD}Direct${NC} ${DIM}── no gateway · opencode.json${NC}"
@@ -430,7 +419,7 @@ port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 SVC_FILE="$HOME/.config/opencode/service.json"
 SVC_PORT="$(jq -r '.port // 49374' "$SVC_FILE" 2>/dev/null)" || SVC_PORT=49374
 [ -n "$SVC_PORT" ] && [ "$SVC_PORT" != "null" ] || SVC_PORT=49374
-if port_busy "$SVC_PORT"; then
+if [ "${PASSTHROUGH[0]:-}" != "serve" ] && port_busy "$SVC_PORT"; then
     # The port is held by another OpenCode instance (foreign service, e.g. a
     # PRoot distro) or a leftover daemon. Either way the TUI cannot bind it:
     # move to the next free port. A leftover own-service is harmless (it
@@ -452,6 +441,9 @@ unset -f port_busy
 
 
 # ---- jalankan TUI, lalu tampilkan layar perpisahan setelah exit --------------
+if [ ${#PASSTHROUGH[@]} -gt 0 ]; then
+    exec "$BIN" "${PASSTHROUGH[@]}"
+fi
 "$BIN" "${PASSTHROUGH[@]}"
 __RC=$?
 show_farewell

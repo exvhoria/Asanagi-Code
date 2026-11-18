@@ -7,25 +7,24 @@ GW=/data/data/com.termux/files/home/.opencode-proxy
 HEALTH=http://127.0.0.1:8123/healthz
 LOG=$GW/watchdog.log
 FAILS=0
+MANAGER=/data/data/com.termux/files/home/.local/bin/opencode-proxy
+
+# One supervisor per installation. The gateway manager also serializes starts.
+exec 8>"$GW/watchdog.lock"
+flock -n 8 || exit 0
 
 say() { echo "[$(date '+%m-%d %H:%M:%S')] $1" >> "$LOG"; }
 
 kill_gw() {
-    /data/data/com.termux/files/usr/bin/bash -c 'pkill -9 -f "opencode-proxy/bin/opencode2ap[i]"' 2>/dev/null
-    sleep 6
+    "$MANAGER" stop 8>&- >> "$LOG" 2>&1
 }
 
 start_gw() {
-    cd "$GW" || return 1
-    rm -f proxy.pid
-    nohup "$GW/bin/opencode2api" -config "$GW/config.json" >> proxy.log 2>&1 &
-    sleep 35
-    for i in $(seq 1 10); do
-        H=$(timeout 5 curl -s "$HEALTH" | head -c 10)
-        [ -n "$H" ] && { say "gateway pulih (attempt $i)"; return 0; }
-        sleep 6
-    done
-    say "WARNING: gateway belum ready 10 attempt setelah start"
+    if "$MANAGER" start 8>&- >> "$LOG" 2>&1; then
+        say "gateway recovered"
+        return 0
+    fi
+    say "WARNING: gateway startup failed; see proxy.log"
     return 1
 }
 
@@ -43,9 +42,9 @@ say "=== watchdog start (pid $$) ==="
 date +%s > "$GW/watchdog.heartbeat"
 while true; do
     date +%s > "$GW/watchdog.heartbeat"
-    sleep 45
-    H=$(timeout 5 curl -s "$HEALTH" | head -c 10)
-    if [ -n "$H" ]; then
+    sleep 45 8>&-
+    if curl --noproxy '*' -fsS --connect-timeout 2 --max-time 3 "$HEALTH" 2>/dev/null |
+        jq -e '.ready == true and .status == "ok"' >/dev/null 2>&1; then
         FAILS=0
         S=$(storm)
         if [ "${S:-0}" -ge 6 ]; then
