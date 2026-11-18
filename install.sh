@@ -6,12 +6,74 @@
 # ═══════════════════════════════════════════════════════════════
 set -u
 RED='\033[31m'; GREEN='\033[32m'; YELLOW='\033[33m'; CYAN='\033[36m'; NC='\033[0m'
+BOLD='\033[1m'; DIM='\033[2m'
 REPO="https://raw.githubusercontent.com/exvhoria/Asanagi-Code/main"
 ENGINE_URL="https://github.com/exvhoria/Asanagi-Code/releases/download/engine-v2/opencode2api-linux-arm64"
 CLI_URL="https://github.com/sst/opencode/releases/download/v2.2.7/opencode-linux-arm64-musl.tar.gz"
 say(){ echo -e "$1"; }
-die(){ say "${RED}[-] $1${NC}"; exit 1; }
-dl(){ curl -fsSL --retry 3 --retry-delay 2 "$1" -o "$2" || die "Download failed: $1"; }
+die(){ printf "\r  ${RED}✖${NC} %s\n" "$1" >&2; exit 1; }
+dl(){ curl -fsSL --retry 3 --retry-delay 2 "$1" -o "$2" || die "Download failed: $(basename "$2")"; }
+ok(){ printf "  ${GREEN}✔${NC} %s\n" "$1"; }
+skip(){ printf "  ${YELLOW}•${NC} %s\n" "$1"; }
+note(){ printf "  ${CYAN}•${NC} %s\n" "$1"; }
+
+human(){
+    local b="${1:-0}"
+    if   [ "$b" -ge 1073741824 ]; then printf "%d.%d GB" $((b/1073741824)) $((b%1073741824*10/1073741824))
+    elif [ "$b" -ge 1048576 ];    then printf "%d.%d MB" $((b/1048576)) $((b%1048576*10/1048576))
+    elif [ "$b" -ge 1024 ];       then printf "%d KB" $((b/1024))
+    else printf "%d B" "$b"; fi
+}
+
+run_spin(){
+    local label="$1"; shift
+    local log="$TMP/spin.log" pid frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
+    "$@" >"$log" 2>&1 &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        printf "\r  ${CYAN}%s${NC} %-34s\033[K" "${frames:$((i%10)):1}" "$label"
+        i=$((i+1)); sleep 0.1
+    done
+    if wait "$pid"; then
+        printf "\r  ${GREEN}✔${NC} %-40s\033[K\n" "$label"
+    else
+        printf "\r  ${RED}✖${NC} %-40s\033[K\n" "$label"
+        [ -s "$log" ] && tail -4 "$log" | sed 's/^/      /'
+        return 1
+    fi
+}
+
+download_bar(){
+    local url="$1" out="$2" label="$3"
+    local total cur pct width filled empty speed elapsed now pid bar j
+    total="$(curl -fsIL --connect-timeout 15 --max-time 30 "$url" 2>/dev/null \
+        | tr -d '\r' | awk 'tolower($1)=="content-length:"{v=$2} END{print v+0}')"
+    rm -f "$out"
+    curl -fsSL --retry 2 --retry-delay 2 "$url" -o "$out" 2>/dev/null &
+    pid=$!
+    local start; start=$(date +%s)
+    while kill -0 "$pid" 2>/dev/null; do
+        cur=0; [ -f "$out" ] && cur=$(stat -c %s "$out" 2>/dev/null || echo 0)
+        now=$(date +%s); elapsed=$((now-start)); [ "$elapsed" -lt 1 ] && elapsed=1
+        speed=$((cur/elapsed))
+        width=$(( ${COLUMNS:-70} - 58 )); [ "$width" -lt 8 ] && width=8; [ "$width" -gt 24 ] && width=24
+        if [ "$total" -gt 0 ]; then pct=$((cur*100/total)); [ "$pct" -gt 100 ] && pct=100; else pct=0; fi
+        filled=$((pct*width/100)); empty=$((width-filled))
+        bar=""
+        for ((j=0;j<filled;j++)); do bar+="█"; done
+        for ((j=0;j<empty;j++)); do bar+="░"; done
+        printf "\r  ${CYAN}↓${NC} %-14s ${CYAN}%s${NC} %3d%% %s" "$label" "$bar" "$pct" "$(human "$cur")"
+        [ "$total" -gt 0 ] && printf "/%s" "$(human "$total")"
+        printf " %s/s\033[K    " "$(human "$speed")"
+        sleep 0.2
+    done
+    if wait "$pid"; then
+        printf "\r  ${GREEN}✔${NC} %-14s %s downloaded\033[K\n" "$label" "$(human "$(stat -c %s "$out" 2>/dev/null || echo 0)")"
+    else
+        printf "\r  ${RED}✖${NC} %-14s download failed\n" "$label"
+        return 1
+    fi
+}
 
 # ── environment detection ─────────────────────────────────────
 MODE="termux"
@@ -52,17 +114,14 @@ CONFIG_DIR="$HOME/.config/opencode"
 CFG="$CONFIG_DIR/opencode.jsonc"
 trap 'rm -rf "$TMP"' EXIT
 
-say "${CYAN}╭──────────────────────────────────────╮${NC}"
-say "${CYAN}│    ✦  A S A N A G I   C O D E  ✦     │${NC}"
-say "${CYAN}│   one-shot installer - v2.2.7        │${NC}"
-say "${CYAN}╰──────────────────────────────────────╯${NC}"
+# ── banner ────────────────────────────────────────────────────
+printf "\n  ${CYAN}✦${NC} ${BOLD}ASANAGI CODE${NC} ${DIM}installer v2.2.7${NC}\n"
 if [ "$MODE" = "termux" ]; then
-    say "${GREEN}[+] Native Termux mode (no PRoot) — recommended.${NC}"
+    printf "  native Termux (no PRoot) — recommended\n\n"
 else
-    say "${YELLOW}[!] PRoot detected — test mode.${NC}"
-    say "${YELLOW}    Asanagi Code is designed to run natively in Termux WITHOUT PRoot.${NC}"
-    say "${YELLOW}    PRoot mode installs the CLI only and reuses the gateway running in Termux.${NC}"
-    say "${YELLOW}    For the full setup (gateway + watchdog), run this installer directly in Termux.${NC}"
+    printf "  PRoot test mode · gateway: Termux :8123\n"
+    printf "  ${YELLOW}⚠ Asanagi Code works natively in Termux without PRoot.${NC}\n"
+    printf "  ${YELLOW}⚠ CLI-only here · original 'opencode' is untouched.${NC}\n\n"
 fi
 
 # ── 0. environment sanity ─────────────────────────────────────
@@ -80,108 +139,100 @@ else
 fi
 
 # ── 1. dependencies ───────────────────────────────────────────
-if [ "$MODE" = "termux" ]; then
-    say "${CYAN}[*] Updating package lists (required on fresh Termux)...${NC}"
-    pkg update -y >/dev/null 2>&1 || apt update -y >/dev/null 2>&1 \
-        || say "${YELLOW}[!] pkg update failed — trying to install anyway${NC}"
-    say "${CYAN}[*] Installing dependencies (python, jq, util-linux, patchelf)...${NC}"
-    pkg install -y python jq util-linux patchelf >/dev/null 2>&1 \
-        || apt install -y python jq util-linux patchelf >/dev/null 2>&1 \
-        || say "${YELLOW}[!] pkg/apt failed — trying to continue anyway${NC}"
-else
-    MISSING=0
-    for cmd in curl tar python3 patchelf; do
-        command -v "$cmd" >/dev/null 2>&1 || MISSING=1
-    done
-    if [ "$MISSING" = "1" ]; then
-        say "${CYAN}[*] Installing dependencies (curl, tar, python3, patchelf)...${NC}"
-        if command -v apt-get >/dev/null 2>&1; then
-            apt-get update -y >/dev/null 2>&1 || say "${YELLOW}[!] apt-get update failed — trying to install anyway${NC}"
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-                curl ca-certificates tar python3 patchelf >/dev/null 2>&1 \
-                || say "${YELLOW}[!] apt-get install failed — trying to continue anyway${NC}"
-        elif command -v apk >/dev/null 2>&1; then
-            apk add --no-cache curl ca-certificates tar python3 patchelf >/dev/null 2>&1 \
-                || say "${YELLOW}[!] apk add failed — trying to continue anyway${NC}"
+install_deps(){
+    if [ "$MODE" = "termux" ]; then
+        pkg update -y >/dev/null 2>&1 || apt update -y >/dev/null 2>&1 || true
+        pkg install -y python jq util-linux patchelf >/dev/null 2>&1 \
+            || apt install -y python jq util-linux patchelf >/dev/null 2>&1 || true
+    else
+        local MISSING=0 cmd
+        for cmd in curl tar python3 patchelf; do
+            command -v "$cmd" >/dev/null 2>&1 || MISSING=1
+        done
+        if [ "$MISSING" = "1" ]; then
+            if command -v apt-get >/dev/null 2>&1; then
+                apt-get update -y >/dev/null 2>&1 || true
+                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                    curl ca-certificates tar python3 patchelf >/dev/null 2>&1 || true
+            elif command -v apk >/dev/null 2>&1; then
+                apk add --no-cache curl ca-certificates tar python3 patchelf >/dev/null 2>&1 || true
+            fi
         fi
     fi
-fi
-
-for cmd in curl tar python3 patchelf; do
-    command -v "$cmd" >/dev/null 2>&1 || die "Missing '$cmd'. Install it and re-run the installer."
-done
+    local cmd
+    for cmd in curl tar python3 patchelf; do
+        command -v "$cmd" >/dev/null 2>&1 || { echo "Missing '$cmd'"; return 1; }
+    done
+}
+run_spin "dependencies" install_deps || die "Could not install dependencies."
 
 # ── 2. musl runtime (Alpine loader + libstdc++/libgcc) ────────
-# The musl CLI needs /lib/ld-musl-aarch64.so.1, libstdc++.so.6, libgcc_s.so.1.
-# Termux puts them in $PREFIX/lib; PRoot keeps them isolated under the install
-# prefix. Downloads come from Alpine's main repository.
-ensure_runtime() {
+ensure_runtime(){
     if [ -x "$MUSL_LOADER" ] && [ -e "$RUNTIME/libstdc++.so.6" ] \
         && [ -e "$RUNTIME/libgcc_s.so.1" ] && [ -e "$RUNTIME/libc.musl-aarch64.so.1" ]; then
-        say "${GREEN}[+] musl runtime OK${NC}"
         return 0
     fi
-    say "${CYAN}[*] Installing musl runtime (Alpine loader + C++ libs)...${NC}"
     local AB="https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/aarch64"
-    local IDX MP LP GP LSTD
+    local IDX MP LP GP LSTD p
     IDX="$(curl -fsSL --connect-timeout 15 --max-time 60 --retry 3 "$AB/" 2>/dev/null)" \
-        || die "Cannot reach the Alpine package mirror."
+        || { echo "Cannot reach the Alpine mirror"; return 1; }
     MP="$(printf '%s\n' "$IDX" | grep -oE 'musl-[0-9][^"<]*\.apk' | sort -uV | tail -1)"
     LP="$(printf '%s\n' "$IDX" | grep -oE 'libstdc\+\+-[0-9][^"<]*\.apk' | sort -uV | tail -1)"
     GP="$(printf '%s\n' "$IDX" | grep -oE 'libgcc-[0-9][^"<]*\.apk' | sort -uV | tail -1)"
-    [ -n "$MP" ] && [ -n "$LP" ] && [ -n "$GP" ] || die "Could not find Alpine musl packages."
+    [ -n "$MP" ] && [ -n "$LP" ] && [ -n "$GP" ] || { echo "Alpine packages not found"; return 1; }
     mkdir -p "$TMP/rt"
-    dl "$AB/$MP" "$TMP/$MP"
-    dl "$AB/$LP" "$TMP/$LP"
-    dl "$AB/$GP" "$TMP/$GP"
-    for p in "$TMP/$MP" "$TMP/$LP" "$TMP/$GP"; do
-        tar -xzf "$p" -C "$TMP/rt" 2>/dev/null || die "Failed to extract $(basename "$p")"
+    for p in "$MP" "$LP" "$GP"; do
+        curl -fsSL --retry 3 "$AB/$p" -o "$TMP/$p" || return 1
+        tar -xzf "$TMP/$p" -C "$TMP/rt" 2>/dev/null || return 1
     done
-    install -m 755 "$TMP/rt/lib/ld-musl-aarch64.so.1" "$RUNTIME/ld-musl-aarch64.so.1"
+    install -m 755 "$TMP/rt/lib/ld-musl-aarch64.so.1" "$RUNTIME/ld-musl-aarch64.so.1" || return 1
     ln -sfn ld-musl-aarch64.so.1 "$RUNTIME/libc.musl-aarch64.so.1"
-    install -m 755 "$TMP/rt/usr/lib/libgcc_s.so.1" "$RUNTIME/libgcc_s.so.1"
+    install -m 755 "$TMP/rt/usr/lib/libgcc_s.so.1" "$RUNTIME/libgcc_s.so.1" || return 1
     LSTD="$(ls "$TMP/rt/usr/lib/libstdc++.so.6."* 2>/dev/null | head -1)"
-    [ -n "$LSTD" ] || die "libstdc++.so.6 not found in the Alpine package."
-    install -m 755 "$LSTD" "$RUNTIME/$(basename "$LSTD")"
+    [ -n "$LSTD" ] || { echo "libstdc++ not found"; return 1; }
+    install -m 755 "$LSTD" "$RUNTIME/$(basename "$LSTD")" || return 1
     ln -sfn "$(basename "$LSTD")" "$RUNTIME/libstdc++.so.6"
-    rm -rf "$TMP/rt"
-    say "${GREEN}[+] musl runtime installed ($RUNTIME)${NC}"
+    rm -rf "$TMP/rt" "$TMP/$MP" "$TMP/$LP" "$TMP/$GP"
 }
-ensure_runtime
+run_spin "musl runtime" ensure_runtime || die "Could not install the musl runtime."
 
 # ── 3. gateway engine (Termux only) ───────────────────────────
 if [ "$MODE" = "termux" ]; then
-    say "${CYAN}[*] Downloading gateway engine (12 MB)...${NC}"
-    dl "$ENGINE_URL" "$GW/bin/opencode2api"
+    download_bar "$ENGINE_URL" "$GW/bin/opencode2api" "gateway engine" || die "Gateway engine download failed."
     chmod 771 "$GW/bin/opencode2api"
+    ok "gateway engine"
 else
-    say "${YELLOW}[!] PRoot: skipping gateway engine — using the Termux gateway.${NC}"
+    skip "gateway engine (using Termux :8123)"
 fi
 
 # ── 4. gateway tools + launcher (Termux only) ─────────────────
 if [ "$MODE" = "termux" ]; then
-    say "${CYAN}[*] Downloading gateway tools + launcher...${NC}"
-    dl "$REPO/gateway/opencode-proxy"      "$BIN_DIR/opencode-proxy"
-    dl "$REPO/gateway/watchdog.sh"         "$GW/watchdog.sh"
-    dl "$REPO/gateway/watchdog2.sh"        "$GW/watchdog2.sh"
-    dl "$REPO/gateway/config.example.json" "$GW/config.example.json"
-    dl "$REPO/asanagi-launcher"            "$BIN_DIR/opencode"
-    chmod +x "$BIN_DIR/opencode" "$BIN_DIR/opencode-proxy" "$GW/watchdog.sh" "$GW/watchdog2.sh"
-    ln -sfn "$BIN_DIR/opencode" "$SYS_BIN/asanagi"
+    fetch_tools(){
+        dl "$REPO/gateway/opencode-proxy"      "$BIN_DIR/opencode-proxy"
+        dl "$REPO/gateway/watchdog.sh"         "$GW/watchdog.sh"
+        dl "$REPO/gateway/watchdog2.sh"        "$GW/watchdog2.sh"
+        dl "$REPO/gateway/config.example.json" "$GW/config.example.json"
+        dl "$REPO/asanagi-launcher"            "$BIN_DIR/opencode"
+        chmod +x "$BIN_DIR/opencode" "$BIN_DIR/opencode-proxy" "$GW/watchdog.sh" "$GW/watchdog2.sh"
+        ln -sfn "$BIN_DIR/opencode" "$SYS_BIN/asanagi"
+    }
+    run_spin "gateway tools + launcher" fetch_tools || die "Could not install the gateway tools."
+    ok "launcher (asanagi)"
 fi
 
 # ── 5. OpenCode provider config (written inline) ──────────────
 # Generated locally so a one-shot install never depends on a separately
 # published template. canonical: "opencode" inherits the full upstream
 # metadata (reasoning variants, limits, compatibility) per model id.
-TS="$(date +%Y%m%d%H%M%S)"
-for f in "$CFG" "$CONFIG_DIR/opencode.json"; do
-    [ -f "$f" ] || continue
-    BK="$f.bak-$TS"
-    cp -p "$f" "$BK" 2>/dev/null || cp "$f" "$BK"
-    say "${GREEN}[+] Existing config backed up:${NC} $BK"
-done
-cat > "$CFG" << 'JSON'
+write_config(){
+    local f BK TS
+    TS="$(date +%Y%m%d%H%M%S)"
+    for f in "$CFG" "$CONFIG_DIR/opencode.json"; do
+        [ -f "$f" ] || continue
+        BK="$f.bak-$TS"
+        cp -p "$f" "$BK" 2>/dev/null || cp "$f" "$BK"
+    done
+    cat > "$CFG" << 'JSON'
 {
   "$schema": "https://opencode.ai/config.json",
   "update": "disable",
@@ -271,8 +322,8 @@ cat > "$CFG" << 'JSON'
   }
 }
 JSON
-chmod 600 "$CFG"
-python3 - "$CFG" << 'PY' || die "Generated OpenCode config is invalid"
+    chmod 600 "$CFG"
+    python3 - "$CFG" << 'PY'
 import json, sys
 src = open(sys.argv[1]).read()
 out, i, n, in_str, esc = [], 0, len(src), False, False
@@ -298,51 +349,60 @@ while i < n:
         out.append(c)
         i += 1
 cfg = json.loads(''.join(out))
-n = len(cfg['providers']['asanagi']['models'])
-print('[+] OpenCode config written and validated (%d asanagi models)' % n)
+assert len(cfg['providers']['asanagi']['models']) == 11
 PY
+}
+run_spin "provider config" write_config || die "Could not write a valid OpenCode config."
+ok "provider config (11 models)"
 
 # ── 6. active gateway config (Termux only, port 8123) ─────────
 if [ "$MODE" = "termux" ]; then
-    python3 - "$GW/config.example.json" "$GW/config.json" << 'PY'
+    write_gateway_config(){
+        python3 - "$GW/config.example.json" "$GW/config.json" << 'PY'
 import json, sys
 c = json.load(open(sys.argv[1]))
 c['listen'] = '127.0.0.1:8123'
 c['server_keys'] = ['local-test-key']
 c.setdefault('webui', {})['listen'] = '127.0.0.1:8124'
 json.dump(c, open(sys.argv[2], 'w'), indent=2)
-print('[+] gateway config written (port 8123)')
 PY
+    }
+    run_spin "gateway config" write_gateway_config || die "Could not write the gateway config."
 fi
 
 # ── 7. OpenCode CLI v2.2.7 musl (253 MB) ──────────────────────
 if [ -x "$BIN" ]; then
-    say "${GREEN}[+] CLI already installed, skipping download.${NC}"
+    skip "OpenCode CLI already installed"
 else
     if [ -n "${ASANAGI_TARBALL:-}" ] && [ -f "$ASANAGI_TARBALL" ]; then
-        say "${CYAN}[*] Using local CLI tarball: $ASANAGI_TARBALL${NC}"
+        note "using local CLI tarball"
         cp "$ASANAGI_TARBALL" "$TMP/cli.tar.gz"
+        ok "OpenCode CLI tarball"
     else
-        say "${CYAN}[*] Downloading OpenCode CLI v2.2.7 musl (253 MB — be patient)...${NC}"
-        curl -fSL --retry 3 --retry-delay 2 "$CLI_URL" -o "$TMP/cli.tar.gz" || die "CLI download failed"
+        download_bar "$CLI_URL" "$TMP/cli.tar.gz" "OpenCode CLI" || die "CLI download failed."
     fi
-    tar -xzf "$TMP/cli.tar.gz" -C "$TMP" || die "CLI extract failed"
-    FIND=$(find "$TMP" -name 'opencode*' -type f -perm -u+x | head -1)
-    [ -n "$FIND" ] && mv "$FIND" "$BIN" && chmod +x "$BIN" \
-        || die "CLI binary not found in archive"
+    extract_cli(){
+        tar -xzf "$TMP/cli.tar.gz" -C "$TMP" 2>/dev/null || return 1
+        local FIND
+        FIND=$(find "$TMP" -name 'opencode*' -type f -perm -u+x | head -1)
+        [ -n "$FIND" ] || return 1
+        mv "$FIND" "$BIN" && chmod +x "$BIN"
+    }
+    run_spin "extracting CLI" extract_cli || die "CLI extract failed."
     rm -rf "$TMP/package" "$TMP/cli.tar.gz"
 fi
 
-say "${CYAN}[*] Patching CLI interpreter (musl)...${NC}"
-patchelf --set-interpreter "$MUSL_LOADER" "$BIN" || die "patchelf failed."
-patchelf --set-rpath "$RUNTIME" "$BIN" >/dev/null 2>&1 || true
+patch_cli(){
+    patchelf --set-interpreter "$MUSL_LOADER" "$BIN" || return 1
+    patchelf --set-rpath "$RUNTIME" "$BIN" >/dev/null 2>&1 || true
+}
+run_spin "patching CLI (musl)" patch_cli || die "patchelf failed."
 CLI_VER="$(env LD_LIBRARY_PATH="$RUNTIME" "$BIN" --version 2>&1)" \
     || die "CLI smoke test failed: $CLI_VER"
-say "${GREEN}[+] CLI ready: $CLI_VER${NC}"
+ok "OpenCode CLI $CLI_VER"
 
 # ── 8. PRoot launcher (never replaces the original opencode) ──
 if [ "$MODE" = "proot" ]; then
-    say "${CYAN}[*] Installing launcher (original 'opencode' left untouched)...${NC}"
     for name in asanagi opencode-asanagi; do
         cat > "$BIN_DIR/$name" << EOF
 #!/usr/bin/env bash
@@ -350,39 +410,27 @@ exec "$BIN" "\$@"
 EOF
         chmod +x "$BIN_DIR/$name"
     done
-    say "${GREEN}[+] Launchers:${NC} $BIN_DIR/asanagi, $BIN_DIR/opencode-asanagi"
+    ok "launcher (asanagi, opencode-asanagi)"
 fi
 
 # ── 9. start watchdog + gateway (Termux only) ─────────────────
 if [ "$MODE" = "termux" ]; then
-    say "${CYAN}[*] Starting gateway + watchdog...${NC}"
     touch "$GW/proxy.log" "$GW/watchdog.log" 2>/dev/null || die "Cannot write in $GW — fix permissions and re-run."
-    "$BIN_DIR/opencode-proxy" start || die "Gateway startup failed — check $GW/proxy.log"
+    run_spin "starting gateway" "$BIN_DIR/opencode-proxy" start || die "Gateway startup failed — check $GW/proxy.log"
     nohup "$GW/watchdog.sh" </dev/null >/dev/null 2>&1 &
     nohup "$GW/watchdog2.sh" </dev/null >/dev/null 2>&1 &
+    ok "gateway + watchdog"
 else
-    say "${CYAN}[*] Checking the Termux gateway on 127.0.0.1:8123...${NC}"
     if curl -fsS --max-time 5 http://127.0.0.1:8123/healthz >/dev/null 2>&1; then
-        say "${GREEN}[+] Termux gateway reachable.${NC}"
+        ok "Termux gateway reachable"
     else
-        say "${YELLOW}[!] Gateway not reachable. Start it in Termux with: opencode-proxy start${NC}"
+        skip "Termux gateway not reachable (run: opencode-proxy start)"
     fi
 fi
 
-say ""
-say "${GREEN}╭──────────────────────────────────────╮${NC}"
-say "${GREEN}│   ✦  INSTALLATION COMPLETE  ✦        │${NC}"
-say "${GREEN}╰──────────────────────────────────────╯${NC}"
+printf "\n  ${GREEN}✦ Done${NC}  run: ${CYAN}asanagi${NC}\n"
 if [ "$MODE" = "termux" ]; then
-    say "  Run        : ${CYAN}asanagi${NC}"
-    say "  Gateway    : http://127.0.0.1:8123 (watchdog supervised)"
-    say "  Free models: deepseek-v4.1-flash-free, big-pickle, +9 more (11 total)"
+    printf "  ${DIM}gateway: http://127.0.0.1:8123 · 11 free models${NC}\n\n"
 else
-    say "  Run        : ${CYAN}asanagi${NC}  (or ${CYAN}opencode-asanagi${NC})"
-    say "  CLI        : $BIN"
-    say "  Gateway    : http://127.0.0.1:8123 (runs in Termux)"
-    say "  Note       : original 'opencode' in this distro was not modified"
-    say ""
-    say "${YELLOW}  Reminder: Asanagi Code runs natively in Termux without PRoot."
-    say "  Re-run this installer directly in Termux for the full gateway setup.${NC}"
+    printf "  ${DIM}gateway: Termux :8123 · native Termux without PRoot is recommended${NC}\n\n"
 fi

@@ -14,6 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   without PRoot.
 - **`ASANAGI_TARBALL`** environment variable for offline/test installs from a
   local CLI tarball.
+- **Compact installer UI**: spinner for each step and a live progress bar
+  (percent, downloaded/total, speed) for the 114 MB CLI download; the noisy
+  multi-line curl meter is gone.
 
 ### Fixed
 - **Fresh-install musl runtime**: the installer now downloads the Alpine
