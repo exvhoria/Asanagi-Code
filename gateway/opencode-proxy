@@ -98,6 +98,7 @@ start_proxy() {
         printf '[*] Starting Asanagi gateway on 127.0.0.1:8123 (direct, no PRoot)...\n'
         export SSL_CERT_FILE="$PREFIX/etc/tls/cert.pem"
         export SSL_CERT_DIR="$PREFIX/etc/ssl/certs"
+        export GOMEMLIMIT="${GOMEMLIMIT:-160MiB}"
         ( cd "$BASE_DIR" && exec nohup "$BIN" -config "$CONFIG" ) \
             </dev/null >> "$LOG_FILE" 2>&1 9>&- &
         pid=$!

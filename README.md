@@ -50,16 +50,15 @@ The opencode.ai free tier meters usage **per session id + egress**. This gateway
 | `asanagi-launcher` | Main launcher (menu, banner, farewell screen) |
 | `gateway/opencode-proxy` | Gateway CLI manager (start/stop/status/logs) |
 | `gateway/watchdog.sh` | 24/7 supervisor (auto-restart + 429-storm healing) |
-| `gateway/daemon_spawn.py` | Daemonizer |
 | `gateway/config.example.json` | Gateway config template |
-| `gateway/opencode.example.jsonc` | OpenCode provider config (12 free models) |
+| `gateway/opencode.example.jsonc` | OpenCode provider config (11 free models) |
 | `lattice/` | **Lattice** — standalone API service (same engine, separate install — for users without Asanagi Code) |
 | `discord-bot/` | Multipurpose Discord bot (NodeJS, 21+ commands, 223 passing tests) — built entirely by the AI through the gateway as a stress test |
 | `docs/LAPORAN-STRESS-TEST.md` | Full stress test + production hardening report (Indonesian) |
 
 ## Validated Free Models
 
-`glm-5.3-flash-free` · `deepseek-v4.1-flash-free` · `minimax-m3.1-flash-free` · `nemotron-3.5-lightning-free` · `longcat-2.5-free` · `flint-40b-free` · etc. (12 models, all ending in `-free`)
+`beam-free` · `big-pickle` · `deepseek-v4.1-flash-free` · `flint-40b-free` · `hy4-flash-free` · `iceman-free` · `inkling-2-small-free` · `longcat-2.5-free` · `mimo-v2.6-flash-free` · `nemotron-3.5-lightning-free` · `nemotron-3.5-super-vl-free` (11 free-tier models)
 
 ## Manual Emergency Recovery
 

@@ -42,7 +42,7 @@ say "=== watchdog start (pid $$) ==="
 date +%s > "$GW/watchdog.heartbeat"
 while true; do
     date +%s > "$GW/watchdog.heartbeat"
-    sleep 45 8>&-
+    sleep 30 8>&-
     if curl --noproxy '*' -fsS --connect-timeout 2 --max-time 3 "$HEALTH" 2>/dev/null |
         jq -e '.ready == true and .status == "ok"' >/dev/null 2>&1; then
         FAILS=0
